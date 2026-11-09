@@ -1,0 +1,41 @@
+[project]
+name = "lexflow"
+version = "0.1.0"
+description = "合同审查多智能体 M0（mock 可跑，不构成法律意见）"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "python-multipart>=0.0.9",
+  "streamlit>=1.37",
+  "pydantic>=2.8",
+  "python-docx>=1.1",
+  "docxtpl>=0.18",
+  "pymupdf>=1.24",
+  "pdfplumber>=0.11",
+  "openai>=1.40",
+  "langgraph>=1.0",
+  "langgraph-checkpoint-sqlite>=2.0",
+  "pytest>=8.0",
+  "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+local-embed = [
+  "sentence-transformers>=3.0",
+  "faiss-cpu>=1.8",
+]
+ocr = [
+  "rapidocr-onnxruntime>=1.3",
+]
+
+[project.scripts]
+lexflow = "lexflow.cli:main"
+lexflow-api = "lexflow.api.main:run"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.uv]
+package = false

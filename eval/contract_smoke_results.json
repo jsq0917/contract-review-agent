@@ -1,0 +1,44 @@
+[
+  {
+    "file": "examples\\real\\labor_contract.docx",
+    "engine": "api",
+    "chars": 795,
+    "clauses": 6,
+    "avg_clause_chars": 132.5,
+    "findings": 13,
+    "traceable": 13,
+    "traceability_rate": 1.0,
+    "cited": 6,
+    "citation_coverage": 0.4615,
+    "all_gates_pass": 5,
+    "all_gates_pass_rate": 0.3846,
+    "gate_counts": {
+      "G1": {
+        "pass": 6,
+        "total": 13
+      },
+      "G2": {
+        "pass": 6,
+        "total": 13
+      },
+      "G3": {
+        "pass": 6,
+        "total": 13
+      },
+      "G4": {
+        "pass": 6,
+        "total": 13
+      },
+      "G5": {
+        "pass": 12,
+        "total": 13
+      }
+    },
+    "llm_calls": 12,
+    "prompt_tokens": 9016,
+    "completion_tokens": 23313,
+    "cost_cny": 0.204536,
+    "elapsed_ms": 163047,
+    "retrieval_mode": "bm25-only"
+  }
+]

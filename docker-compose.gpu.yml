@@ -1,0 +1,17 @@
+# GPU 可选覆盖层：需要宿主机装好 NVIDIA Container Toolkit。
+# 用法：docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+# 无 GPU 时只用 docker-compose.yml，同一份基础配置仍可启动（device 自动降 cpu）。
+
+services:
+  api:
+    build:
+      args:
+        TORCH_INDEX: https://download.pytorch.org/whl/cu130
+    gpus: all
+    environment:
+      LEXFLOW_DEVICE: cuda
+      LEXFLOW_EMBEDDING_DEVICE: cuda
+      LEXFLOW_RERANKER_DEVICE: cuda
+      # 8GB 笔记本 GPU 上容器加载 bge-m3(fp32) 出现过碎片化 OOM；
+      # 用 expandable_segments 让分配器复用碎片空间。
+      PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True

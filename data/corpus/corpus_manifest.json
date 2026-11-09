@@ -1,0 +1,71 @@
+{
+  "builder_version": "corpus-v2",
+  "total": 1465,
+  "by_law": [
+    {
+      "law_id": "cc",
+      "law_name": "中华人民共和国民法典",
+      "count": 1260,
+      "effective_from": "2021-01-01",
+      "source_url": "https://www.npc.gov.cn/npc/c30834/202006/75ba6483b8344591abd07917e1d25cc8.shtml"
+    },
+    {
+      "law_id": "ll",
+      "law_name": "中华人民共和国劳动法",
+      "count": 107,
+      "effective_from": "1995-01-01",
+      "source_url": "https://www.mohrss.gov.cn/xxgk2020/fdzdgknr/zcfg/fl/202011/t20201102_394625.html"
+    },
+    {
+      "law_id": "lcl",
+      "law_name": "中华人民共和国劳动合同法",
+      "count": 98,
+      "effective_from": "2008-01-01",
+      "source_url": ""
+    }
+  ],
+  "sources": {
+    "ref_corpus": "E:\\project\\LexSynergy Legal QA System\\data\\corpus\\articles.jsonl",
+    "civil_md": "E:\\project\\LawAnswer-doubao\\data\\raw\\中华人民共和国民法典.md",
+    "labor_md": "E:\\project\\LawAnswer-doubao\\data\\raw\\中华人民共和国劳动法_中华人民共和国人力资源和社会保障部.md",
+    "lcl_md": "E:\\project\\LawAnswer-doubao\\data\\raw\\中华人民共和国劳动合同法.md"
+  },
+  "normalization": {
+    "law_id": "ll",
+    "source_chars": 1122,
+    "article_chars": 1018,
+    "affected_articles": 107,
+    "log_file": "labor_law_normalization.jsonl",
+    "supplement_fixes": {
+      "⺠": "民",
+      "⻔": "门",
+      "⻓": "长",
+      "⻅": "见"
+    }
+  },
+  "text_cleaning": [
+    "民法典第一千二百六十条：移除源语料尾部“新华社…”网页片段",
+    "劳动合同法第九十八条：移除源语料尾部“八次会议通过）”片段"
+  ],
+  "missing_metadata": [
+    {
+      "field": "effective_to",
+      "scope": "all",
+      "reason": "源文件未提供废止/失效日期，全部留空"
+    },
+    {
+      "field": "source_url",
+      "scope": "lcl",
+      "reason": "本地劳动合同法 Markdown 未包含来源 URL"
+    },
+    {
+      "field": "effective_from(修正生效日)",
+      "scope": "ll",
+      "reason": "仅第一百零七条明示 1995-01-01；2018 修正案的生效日源文件未明示"
+    }
+  ],
+  "files": {
+    "law_articles.jsonl": "cc76c77435b06a1059070ccc7c4516e3cbef9261fb9a139cd365df61638db642",
+    "labor_law_normalization.jsonl": "7bdc27b8f63de92f678cff9a47441880ac00e49bfd9ab98d0c5eef82a90a5bae"
+  }
+}

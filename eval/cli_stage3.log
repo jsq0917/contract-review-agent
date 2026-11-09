@@ -1,0 +1,51 @@
+WARN No valid certificates found in `SSL_CERT_DIR`: D:\dev\anaconda3\Library\ssl\certs. No default certificates will be trusted.
+{"ts": "2026-11-03T07:46:56.559931+00:00", "level": "INFO", "logger": "lexflow.retrieval", "event": "retrieval.vector_unavailable", "mode": "bm25-only", "reason": "embedding 已通过 LEXFLOW_EMBEDDING_ENABLED=false 禁用", "model": "E:\\project\\模型\\bge-m3"}
+{"ts": "2026-11-03T07:46:56.734789+00:00", "level": "INFO", "logger": "lexflow.graph", "event": "node.done", "matter_id": "matter-1c9a24c2b9", "node": "parse", "model": "parser", "tokens": 0, "latency": 167, "status": "ok"}
+{"ts": "2026-11-03T07:46:56.740918+00:00", "level": "INFO", "logger": "lexflow.graph", "event": "node.done", "matter_id": "matter-1c9a24c2b9", "node": "segment_clauses", "model": "rule", "tokens": 0, "latency": 5, "status": "ok"}
+{"ts": "2026-11-03T07:46:56.745436+00:00", "level": "INFO", "logger": "lexflow.review", "event": "review.done", "matter_id": "matter-1c9a24c2b9", "clause_id": "C0001", "reviewer": "commercial", "findings": 0, "model": "mock-deterministic-v2", "status": "empty"}
+{"ts": "2026-11-03T07:46:56.757979+00:00", "level": "INFO", "logger": "lexflow.review", "event": "review.done", "matter_id": "matter-1c9a24c2b9", "clause_id": "C0001", "reviewer": "legal", "findings": 0, "model": "mock-deterministic-v2", "status": "empty"}
+{"ts": "2026-11-03T07:46:56.763662+00:00", "level": "INFO", "logger": "lexflow.review", "event": "review.done", "matter_id": "matter-1c9a24c2b9", "clause_id": "C0002", "reviewer": "commercial", "findings": 1, "model": "mock-deterministic-v2", "status": "ok"}
+{"ts": "2026-11-03T07:46:56.767168+00:00", "level": "INFO", "logger": "lexflow.review", "event": "review.done", "matter_id": "matter-1c9a24c2b9", "clause_id": "C0002", "reviewer": "legal", "findings": 1, "model": "mock-deterministic-v2", "status": "ok"}
+{"ts": "2026-11-03T07:46:56.770172+00:00", "level": "INFO", "logger": "lexflow.review", "event": "review.done", "matter_id": "matter-1c9a24c2b9", "clause_id": "C0003", "reviewer": "commercial", "findings": 0, "model": "mock-deterministic-v2", "status": "empty"}
+{"ts": "2026-11-03T07:46:56.774683+00:00", "level": "INFO", "logger": "lexflow.review", "event": "review.done", "matter_id": "matter-1c9a24c2b9", "clause_id": "C0003", "reviewer": "legal", "findings": 0, "model": "mock-deterministic-v2", "status": "empty"}
+{"ts": "2026-11-03T07:46:56.777702+00:00", "level": "INFO", "logger": "lexflow.review", "event": "review.done", "matter_id": "matter-1c9a24c2b9", "clause_id": "C0004", "reviewer": "commercial", "findings": 1, "model": "mock-deterministic-v2", "status": "ok"}
+{"ts": "2026-11-03T07:46:56.782214+00:00", "level": "INFO", "logger": "lexflow.review", "event": "review.done", "matter_id": "matter-1c9a24c2b9", "clause_id": "C0004", "reviewer": "legal", "findings": 1, "model": "mock-deterministic-v2", "status": "ok"}
+{"ts": "2026-11-03T07:46:56.785220+00:00", "level": "INFO", "logger": "lexflow.review", "event": "review.done", "matter_id": "matter-1c9a24c2b9", "clause_id": "C0005", "reviewer": "commercial", "findings": 1, "model": "mock-deterministic-v2", "status": "ok"}
+{"ts": "2026-11-03T07:46:56.788329+00:00", "level": "INFO", "logger": "lexflow.review", "event": "review.done", "matter_id": "matter-1c9a24c2b9", "clause_id": "C0005", "reviewer": "legal", "findings": 1, "model": "mock-deterministic-v2", "status": "ok"}
+{"ts": "2026-11-03T07:46:56.791336+00:00", "level": "INFO", "logger": "lexflow.review", "event": "review.done", "matter_id": "matter-1c9a24c2b9", "clause_id": "C0006", "reviewer": "commercial", "findings": 1, "model": "mock-deterministic-v2", "status": "ok"}
+{"ts": "2026-11-03T07:46:56.796415+00:00", "level": "INFO", "logger": "lexflow.review", "event": "review.done", "matter_id": "matter-1c9a24c2b9", "clause_id": "C0006", "reviewer": "legal", "findings": 1, "model": "mock-deterministic-v2", "status": "ok"}
+{"ts": "2026-11-03T07:46:56.800983+00:00", "level": "INFO", "logger": "lexflow.review", "event": "review.done", "matter_id": "matter-1c9a24c2b9", "clause_id": "C0007", "reviewer": "commercial", "findings": 0, "model": "mock-deterministic-v2", "status": "empty"}
+{"ts": "2026-11-03T07:46:56.800983+00:00", "level": "INFO", "logger": "lexflow.graph", "event": "node.done", "matter_id": "matter-1c9a24c2b9", "node": "review_commercial", "model": "mock-deterministic-v2", "tokens": 0, "latency": 59, "status": "ok"}
+{"ts": "2026-11-03T07:46:56.800983+00:00", "level": "INFO", "logger": "lexflow.review", "event": "review.done", "matter_id": "matter-1c9a24c2b9", "clause_id": "C0007", "reviewer": "legal", "findings": 0, "model": "mock-deterministic-v2", "status": "empty"}
+{"ts": "2026-11-03T07:46:56.800983+00:00", "level": "INFO", "logger": "lexflow.graph", "event": "node.done", "matter_id": "matter-1c9a24c2b9", "node": "review_legal", "model": "mock-deterministic-v2", "tokens": 0, "latency": 56, "status": "ok"}
+{"ts": "2026-11-03T07:46:56.847777+00:00", "level": "INFO", "logger": "lexflow.graph", "event": "node.done", "matter_id": "matter-1c9a24c2b9", "node": "bind_evidence", "model": "retriever", "tokens": 0, "latency": 44, "status": "ok", "retrieval_mode": "bm25-only", "retrieval_device": "n/a"}
+{"ts": "2026-11-03T07:46:56.848778+00:00", "level": "INFO", "logger": "lexflow.graph", "event": "node.done", "matter_id": "matter-1c9a24c2b9", "node": "verify", "model": "rules", "tokens": 0, "latency": 0, "status": "ok"}
+{"ts": "2026-11-03T07:46:56.868145+00:00", "level": "INFO", "logger": "lexflow.graph", "event": "node.done", "matter_id": "matter-1c9a24c2b9", "node": "assemble_report", "model": "template", "tokens": 0, "latency": 19, "status": "ok"}
+{"ts": "2026-11-03T07:46:56.948208+00:00", "level": "INFO", "logger": "lexflow.graph", "event": "node.done", "matter_id": "matter-1c9a24c2b9", "node": "export_docx", "model": "docxtpl", "tokens": 0, "latency": 79, "status": "ok"}
+{
+  "matter_id": "matter-1c9a24c2b9",
+  "status": "completed",
+  "engine": "mock",
+  "findings_count": 8,
+  "elapsed_ms": 403,
+  "docx_path": "E:\\project\\lexflow\\artifacts\\matter-1c9a24c2b9\\report.docx",
+  "warnings": [
+    "docx 无固定分页信息，page_no 按字符位置近似分配。"
+  ],
+  "metrics": {
+    "llm_calls": 14,
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "cost_estimate_cny": 0.0,
+    "node_latency_ms": {
+      "parse": 167,
+      "segment_clauses": 5,
+      "review_commercial": 59,
+      "review_legal": 56,
+      "bind_evidence": 44,
+      "verify": 0
+    },
+    "retrieval_mode": "bm25-only",
+    "retrieval_device": "n/a"
+  }
+}

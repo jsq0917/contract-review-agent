@@ -1,0 +1,5 @@
+# 把 Linux CUDA 版 torch wheel 放到本目录，构建时会优先本地安装。
+# 示例（宿主机执行）：
+#   pip download torch --no-deps --index-url https://download.pytorch.org/whl/cu130 \
+#     --platform manylinux_2_28_x86_64 --python-version 3.12 --only-binary=:all: -d docker/wheels
+# 该目录下 *.whl 已在 .gitignore 中排除，不会入库。

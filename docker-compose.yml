@@ -1,0 +1,83 @@
+name: lexflow
+
+# 数据与模型都在宿主机，容器重建不丢；模型只读挂载，不进镜像。
+# 默认挂载相对路径：./data -> /app/data，../模型 -> /models。
+# 如需改模型目录：LEXFLOW_MODEL_HOST_DIR="D:/path/to/模型" docker compose up -d
+
+x-lexflow-env: &lexflow-env
+  LEXFLOW_MODEL_DIR: /models
+  LEXFLOW_DATA_DIR: /app/data
+  LEXFLOW_ARTIFACTS_DIR: /app/artifacts
+  LEXFLOW_DB: /app/data/lexflow.db
+  LEXFLOW_CORPUS: /app/data/corpus/law_articles.jsonl
+  LEXFLOW_EMBED_CACHE: /app/data/embeddings
+  LEXFLOW_TEMPLATE: /app/assets/templates/risk_report.docx
+  LEXFLOW_DEVICE: ${LEXFLOW_DEVICE:-auto}
+  LEXFLOW_EMBEDDING_DEVICE: ${LEXFLOW_DEVICE:-auto}
+  LEXFLOW_RERANKER_DEVICE: ${LEXFLOW_DEVICE:-auto}
+  LEXFLOW_EMBEDDING_ENABLED: ${LEXFLOW_EMBEDDING_ENABLED:-true}
+  LEXFLOW_RERANKER_ENABLED: ${LEXFLOW_RERANKER_ENABLED:-false}
+  LEXFLOW_API_KEY: ${LEXFLOW_API_KEY:-}
+  LEXFLOW_BASE_URL: ${LEXFLOW_BASE_URL:-https://api.deepseek.com}
+  LEXFLOW_MODEL: ${LEXFLOW_MODEL:-deepseek-chat}
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        TORCH_INDEX: ${TORCH_INDEX:-https://download.pytorch.org/whl/cpu}
+    image: lexflow:0.1.0
+    command: ["uvicorn", "lexflow.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      <<: *lexflow-env
+    ports:
+      - "${LEXFLOW_API_PORT:-8000}:8000"
+    volumes:
+      - type: bind
+        source: ./data
+        target: /app/data
+      - type: bind
+        source: ./artifacts
+        target: /app/artifacts
+      - type: bind
+        source: ${LEXFLOW_MODEL_HOST_DIR:-../模型}
+        target: /models
+        read_only: true
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=10).status==200 else 1)",
+        ]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 180s
+
+  ui:
+    image: lexflow:0.1.0
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        TORCH_INDEX: ${TORCH_INDEX:-https://download.pytorch.org/whl/cpu}
+    command:
+      [
+        "streamlit",
+        "run",
+        "lexflow/ui/app.py",
+        "--server.address=0.0.0.0",
+        "--server.port=8501",
+        "--server.headless=true",
+      ]
+    environment:
+      <<: *lexflow-env
+      LEXFLOW_API_URL: http://api:8000
+    ports:
+      - "${LEXFLOW_UI_PORT:-8501}:8501"
+    depends_on:
+      - api

@@ -1,0 +1,13 @@
+contract,template,variant,expected_clauses,parsed_clauses,gold_risk_clauses,hit_risk_clauses,clause_recall,found_risk_clauses,clause_precision,findings,rule_hits,traceable_findings,traceability_rate,findings_all_gates_pass,findings_all_gates_pass_rate,G1_pass,G1_total,G2_pass,G2_total,G3_pass,G3_total,llm_calls,prompt_tokens,completion_tokens,cost_estimate_cny,elapsed_ms,docx_table_rows,db_findings,note
+tech_0.docx,tech,0,8,8,1,1,1.0,1,1.0,2,"{""R-PAY-001"": 2}",2,1.0,2,1.0,2,2,2,2,2,2,16,0,0,0.0,14390,2,2,合成数据；gold 由注入规则反推；mock 引擎，指标不可外推
+tech_1.docx,tech,1,8,8,1,1,1.0,1,1.0,2,"{""R-PEN-001"": 2}",2,1.0,2,1.0,2,2,2,2,2,2,16,0,0,0.0,475,2,2,合成数据；gold 由注入规则反推；mock 引擎，指标不可外推
+tech_2.docx,tech,2,8,8,2,2,1.0,2,1.0,4,"{""R-PAY-001"": 2, ""R-TERM-001"": 2}",4,1.0,4,1.0,4,4,4,4,4,4,16,0,0,0.0,542,4,4,合成数据；gold 由注入规则反推；mock 引擎，指标不可外推
+tech_3.docx,tech,3,8,8,2,2,1.0,2,1.0,4,"{""R-JUR-001"": 2, ""R-PEN-001"": 2}",4,1.0,4,1.0,4,4,4,4,4,4,16,0,0,0.0,511,4,4,合成数据；gold 由注入规则反推；mock 引擎，指标不可外推
+proc_0.docx,proc,0,8,8,1,1,1.0,1,1.0,2,"{""R-PAY-001"": 2}",2,1.0,2,1.0,2,2,2,2,2,2,16,0,0,0.0,492,2,2,合成数据；gold 由注入规则反推；mock 引擎，指标不可外推
+proc_1.docx,proc,1,8,8,1,1,1.0,1,1.0,2,"{""R-PEN-001"": 2}",2,1.0,2,1.0,2,2,2,2,2,2,16,0,0,0.0,495,2,2,合成数据；gold 由注入规则反推；mock 引擎，指标不可外推
+proc_2.docx,proc,2,8,8,2,2,1.0,2,1.0,4,"{""R-PAY-001"": 2, ""R-TERM-001"": 2}",4,1.0,4,1.0,4,4,4,4,4,4,16,0,0,0.0,537,4,4,合成数据；gold 由注入规则反推；mock 引擎，指标不可外推
+proc_3.docx,proc,3,8,8,2,2,1.0,2,1.0,4,"{""R-JUR-001"": 2, ""R-PEN-001"": 2}",4,1.0,4,1.0,4,4,4,4,4,4,16,0,0,0.0,496,4,4,合成数据；gold 由注入规则反推；mock 引擎，指标不可外推
+dev_0.docx,dev,0,8,8,1,1,1.0,1,1.0,2,"{""R-PAY-001"": 2}",2,1.0,2,1.0,2,2,2,2,2,2,16,0,0,0.0,466,2,2,合成数据；gold 由注入规则反推；mock 引擎，指标不可外推
+dev_1.docx,dev,1,8,8,1,1,1.0,1,1.0,2,"{""R-PEN-001"": 2}",2,1.0,2,1.0,2,2,2,2,2,2,16,0,0,0.0,481,2,2,合成数据；gold 由注入规则反推；mock 引擎，指标不可外推
+dev_2.docx,dev,2,8,8,2,2,1.0,2,1.0,4,"{""R-PAY-001"": 2, ""R-TERM-001"": 2}",4,1.0,4,1.0,4,4,4,4,4,4,16,0,0,0.0,542,4,4,合成数据；gold 由注入规则反推；mock 引擎，指标不可外推
+dev_3.docx,dev,3,8,8,2,2,1.0,2,1.0,4,"{""R-JUR-001"": 2, ""R-PEN-001"": 2}",4,1.0,4,1.0,4,4,4,4,4,4,16,0,0,0.0,512,4,4,合成数据；gold 由注入规则反推；mock 引擎，指标不可外推

@@ -1,0 +1,60 @@
+WARN No valid certificates found in `SSL_CERT_DIR`: D:\dev\anaconda3\Library\ssl\certs. No default certificates will be trusted.
+{"ts": "2026-11-03T07:56:40.195644+00:00", "level": "INFO", "logger": "lexflow.retrieval", "event": "retrieval.vector_unavailable", "mode": "bm25-only", "reason": "embedding 已通过 LEXFLOW_EMBEDDING_ENABLED=false 禁用", "model": "E:\\project\\模型\\bge-m3"}
+{"ts": "2026-11-03T07:56:40.225495+00:00", "level": "INFO", "logger": "lexflow.graph", "event": "node.done", "matter_id": "matter-e66de2f9cd", "node": "parse", "model": "parser", "tokens": 0, "latency": 21, "status": "ok"}
+{"ts": "2026-11-03T07:56:40.230001+00:00", "level": "INFO", "logger": "lexflow.graph", "event": "node.done", "matter_id": "matter-e66de2f9cd", "node": "segment_clauses", "model": "rule", "tokens": 0, "latency": 3, "status": "ok"}
+{"ts": "2026-11-03T07:56:40.257289+00:00", "level": "INFO", "logger": "lexflow.review", "event": "review.done", "matter_id": "matter-e66de2f9cd", "clause_id": "C0001", "reviewer": "legal", "findings": 0, "model": "mock-deterministic-v2", "status": "empty"}
+{"ts": "2026-11-03T07:56:40.267308+00:00", "level": "INFO", "logger": "lexflow.review", "event": "review.done", "matter_id": "matter-e66de2f9cd", "clause_id": "C0001", "reviewer": "commercial", "findings": 0, "model": "mock-deterministic-v2", "status": "empty"}
+{"ts": "2026-11-03T07:56:40.272786+00:00", "level": "INFO", "logger": "lexflow.review", "event": "review.done", "matter_id": "matter-e66de2f9cd", "clause_id": "C0002", "reviewer": "legal", "findings": 1, "model": "mock-deterministic-v2", "status": "ok"}
+{"ts": "2026-11-03T07:56:40.277786+00:00", "level": "INFO", "logger": "lexflow.review", "event": "review.done", "matter_id": "matter-e66de2f9cd", "clause_id": "C0002", "reviewer": "commercial", "findings": 1, "model": "mock-deterministic-v2", "status": "ok"}
+{"ts": "2026-11-03T07:56:40.281800+00:00", "level": "INFO", "logger": "lexflow.review", "event": "review.done", "matter_id": "matter-e66de2f9cd", "clause_id": "C0003", "reviewer": "legal", "findings": 0, "model": "mock-deterministic-v2", "status": "empty"}
+{"ts": "2026-11-03T07:56:40.285806+00:00", "level": "INFO", "logger": "lexflow.review", "event": "review.done", "matter_id": "matter-e66de2f9cd", "clause_id": "C0003", "reviewer": "commercial", "findings": 0, "model": "mock-deterministic-v2", "status": "empty"}
+{"ts": "2026-11-03T07:56:40.290323+00:00", "level": "INFO", "logger": "lexflow.review", "event": "review.done", "matter_id": "matter-e66de2f9cd", "clause_id": "C0004", "reviewer": "legal", "findings": 1, "model": "mock-deterministic-v2", "status": "ok"}
+{"ts": "2026-11-03T07:56:40.293921+00:00", "level": "INFO", "logger": "lexflow.review", "event": "review.done", "matter_id": "matter-e66de2f9cd", "clause_id": "C0004", "reviewer": "commercial", "findings": 1, "model": "mock-deterministic-v2", "status": "ok"}
+{"ts": "2026-11-03T07:56:40.298940+00:00", "level": "INFO", "logger": "lexflow.review", "event": "review.done", "matter_id": "matter-e66de2f9cd", "clause_id": "C0005", "reviewer": "legal", "findings": 1, "model": "mock-deterministic-v2", "status": "ok"}
+{"ts": "2026-11-03T07:56:40.302455+00:00", "level": "INFO", "logger": "lexflow.review", "event": "review.done", "matter_id": "matter-e66de2f9cd", "clause_id": "C0005", "reviewer": "commercial", "findings": 1, "model": "mock-deterministic-v2", "status": "ok"}
+{"ts": "2026-11-03T07:56:40.305460+00:00", "level": "INFO", "logger": "lexflow.review", "event": "review.done", "matter_id": "matter-e66de2f9cd", "clause_id": "C0006", "reviewer": "legal", "findings": 1, "model": "mock-deterministic-v2", "status": "ok"}
+{"ts": "2026-11-03T07:56:40.310750+00:00", "level": "INFO", "logger": "lexflow.review", "event": "review.done", "matter_id": "matter-e66de2f9cd", "clause_id": "C0006", "reviewer": "commercial", "findings": 1, "model": "mock-deterministic-v2", "status": "ok"}
+{"ts": "2026-11-03T07:56:40.315261+00:00", "level": "INFO", "logger": "lexflow.review", "event": "review.done", "matter_id": "matter-e66de2f9cd", "clause_id": "C0007", "reviewer": "legal", "findings": 0, "model": "mock-deterministic-v2", "status": "empty"}
+{"ts": "2026-11-03T07:56:40.315261+00:00", "level": "INFO", "logger": "lexflow.graph", "event": "node.done", "matter_id": "matter-e66de2f9cd", "node": "review_legal", "model": "mock-deterministic-v2", "tokens": 0, "latency": 61, "status": "ok"}
+{"ts": "2026-11-03T07:56:40.315261+00:00", "level": "INFO", "logger": "lexflow.review", "event": "review.done", "matter_id": "matter-e66de2f9cd", "clause_id": "C0007", "reviewer": "commercial", "findings": 0, "model": "mock-deterministic-v2", "status": "empty"}
+{"ts": "2026-11-03T07:56:40.316261+00:00", "level": "INFO", "logger": "lexflow.graph", "event": "node.done", "matter_id": "matter-e66de2f9cd", "node": "review_commercial", "model": "mock-deterministic-v2", "tokens": 0, "latency": 84, "status": "ok"}
+{"ts": "2026-11-03T07:56:40.365013+00:00", "level": "INFO", "logger": "lexflow.graph", "event": "node.done", "matter_id": "matter-e66de2f9cd", "node": "bind_evidence", "model": "retriever", "tokens": 0, "latency": 47, "status": "ok", "retrieval_mode": "bm25-only", "retrieval_device": "n/a"}
+{"ts": "2026-11-03T07:56:40.366018+00:00", "level": "INFO", "logger": "lexflow.graph", "event": "node.done", "matter_id": "matter-e66de2f9cd", "node": "verify", "model": "rules", "tokens": 0, "latency": 0, "status": "ok"}
+{"ts": "2026-11-03T07:56:40.388074+00:00", "level": "INFO", "logger": "lexflow.graph", "event": "node.done", "matter_id": "matter-e66de2f9cd", "node": "assemble_report", "model": "template", "tokens": 0, "latency": 21, "status": "ok"}
+{"ts": "2026-11-03T07:56:40.471864+00:00", "level": "INFO", "logger": "lexflow.graph", "event": "node.done", "matter_id": "matter-e66de2f9cd", "node": "export_docx", "model": "docxtpl", "tokens": 0, "latency": 82, "status": "ok"}
+{"ts": "2026-11-03T07:56:40.745601+00:00", "level": "INFO", "logger": "lexflow.graph", "event": "node.done", "matter_id": "matter-cff26b8d78", "node": "parse", "model": "parser", "tokens": 0, "latency": 230, "status": "ok"}
+{"ts": "2026-11-03T07:56:40.758496+00:00", "level": "INFO", "logger": "lexflow.graph", "event": "node.done", "matter_id": "matter-cff26b8d78", "node": "segment_clauses", "model": "rule", "tokens": 0, "latency": 12, "status": "ok"}
+{"ts": "2026-11-03T07:56:40.763512+00:00", "level": "INFO", "logger": "lexflow.review", "event": "review.done", "matter_id": "matter-cff26b8d78", "clause_id": "C0001", "reviewer": "commercial", "findings": 0, "model": "mock-deterministic-v2", "status": "empty"}
+{"ts": "2026-11-03T07:56:40.769023+00:00", "level": "INFO", "logger": "lexflow.review", "event": "review.done", "matter_id": "matter-cff26b8d78", "clause_id": "C0002", "reviewer": "commercial", "findings": 1, "model": "mock-deterministic-v2", "status": "ok"}
+{"ts": "2026-11-03T07:56:40.774213+00:00", "level": "INFO", "logger": "lexflow.review", "event": "review.done", "matter_id": "matter-cff26b8d78", "clause_id": "C0003", "reviewer": "commercial", "findings": 1, "model": "mock-deterministic-v2", "status": "ok"}
+{"ts": "2026-11-03T07:56:40.777722+00:00", "level": "INFO", "logger": "lexflow.review", "event": "review.done", "matter_id": "matter-cff26b8d78", "clause_id": "C0004", "reviewer": "commercial", "findings": 0, "model": "mock-deterministic-v2", "status": "empty"}
+{"ts": "2026-11-03T07:56:40.787238+00:00", "level": "INFO", "logger": "lexflow.review", "event": "review.done", "matter_id": "matter-cff26b8d78", "clause_id": "C0001", "reviewer": "legal", "findings": 0, "model": "mock-deterministic-v2", "status": "empty"}
+{"ts": "2026-11-03T07:56:40.793011+00:00", "level": "INFO", "logger": "lexflow.review", "event": "review.done", "matter_id": "matter-cff26b8d78", "clause_id": "C0005", "reviewer": "commercial", "findings": 1, "model": "mock-deterministic-v2", "status": "ok"}
+{"ts": "2026-11-03T07:56:40.799038+00:00", "level": "INFO", "logger": "lexflow.review", "event": "review.done", "matter_id": "matter-cff26b8d78", "clause_id": "C0002", "reviewer": "legal", "findings": 1, "model": "mock-deterministic-v2", "status": "ok"}
+{"ts": "2026-11-03T07:56:40.803060+00:00", "level": "INFO", "logger": "lexflow.review", "event": "review.done", "matter_id": "matter-cff26b8d78", "clause_id": "C0006", "reviewer": "commercial", "findings": 0, "model": "mock-deterministic-v2", "status": "empty"}
+{"ts": "2026-11-03T07:56:40.805702+00:00", "level": "INFO", "logger": "lexflow.review", "event": "review.done", "matter_id": "matter-cff26b8d78", "clause_id": "C0003", "reviewer": "legal", "findings": 1, "model": "mock-deterministic-v2", "status": "ok"}
+{"ts": "2026-11-03T07:56:40.809218+00:00", "level": "INFO", "logger": "lexflow.review", "event": "review.done", "matter_id": "matter-cff26b8d78", "clause_id": "C0007", "reviewer": "commercial", "findings": 1, "model": "mock-deterministic-v2", "status": "ok"}
+{"ts": "2026-11-03T07:56:40.809218+00:00", "level": "INFO", "logger": "lexflow.graph", "event": "node.done", "matter_id": "matter-cff26b8d78", "node": "review_commercial", "model": "mock-deterministic-v2", "tokens": 0, "latency": 48, "status": "ok"}
+{"ts": "2026-11-03T07:56:40.810217+00:00", "level": "INFO", "logger": "lexflow.review", "event": "review.done", "matter_id": "matter-cff26b8d78", "clause_id": "C0004", "reviewer": "legal", "findings": 0, "model": "mock-deterministic-v2", "status": "empty"}
+{"ts": "2026-11-03T07:56:40.813724+00:00", "level": "INFO", "logger": "lexflow.review", "event": "review.done", "matter_id": "matter-cff26b8d78", "clause_id": "C0005", "reviewer": "legal", "findings": 1, "model": "mock-deterministic-v2", "status": "ok"}
+{"ts": "2026-11-03T07:56:40.818737+00:00", "level": "INFO", "logger": "lexflow.review", "event": "review.done", "matter_id": "matter-cff26b8d78", "clause_id": "C0006", "reviewer": "legal", "findings": 0, "model": "mock-deterministic-v2", "status": "empty"}
+{"ts": "2026-11-03T07:56:40.820742+00:00", "level": "INFO", "logger": "lexflow.review", "event": "review.done", "matter_id": "matter-cff26b8d78", "clause_id": "C0007", "reviewer": "legal", "findings": 1, "model": "mock-deterministic-v2", "status": "ok"}
+{"ts": "2026-11-03T07:56:40.820742+00:00", "level": "INFO", "logger": "lexflow.graph", "event": "node.done", "matter_id": "matter-cff26b8d78", "node": "review_legal", "model": "mock-deterministic-v2", "tokens": 0, "latency": 42, "status": "ok"}
+{"ts": "2026-11-03T07:56:40.864068+00:00", "level": "INFO", "logger": "lexflow.graph", "event": "node.done", "matter_id": "matter-cff26b8d78", "node": "bind_evidence", "model": "retriever", "tokens": 0, "latency": 41, "status": "ok", "retrieval_mode": "bm25-only", "retrieval_device": "n/a"}
+{"ts": "2026-11-03T07:56:40.865068+00:00", "level": "INFO", "logger": "lexflow.graph", "event": "node.done", "matter_id": "matter-cff26b8d78", "node": "verify", "model": "rules", "tokens": 0, "latency": 0, "status": "ok"}
+{"ts": "2026-11-03T07:56:40.885183+00:00", "level": "INFO", "logger": "lexflow.graph", "event": "node.done", "matter_id": "matter-cff26b8d78", "node": "assemble_report", "model": "template", "tokens": 0, "latency": 19, "status": "ok"}
+{"ts": "2026-11-03T07:56:40.910459+00:00", "level": "INFO", "logger": "lexflow.graph", "event": "node.done", "matter_id": "matter-cff26b8d78", "node": "export_docx", "model": "docxtpl", "tokens": 0, "latency": 25, "status": "ok"}
+# M0 评测（原始计数与比率）
+
+> 引擎为 mock；以下数字只描述本次运行，不代表真实模型效果或法律质量。
+
+| 样本 | 条款数 | 风险条款召回 | 风险项 | 溯源率 | 三闸全过率 | 调用 | tokens(in/out) | 成本CNY | 耗时ms | docx行数 | DB条数 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| sample_service_contract.docx | 7/7 | 4/4 (1.0) | 8 | 8/8 (1.0) | 8/8 (1.0) | 14 | 0/0 | 0.0 | 292 | 8 | 8 |
+| sample_procurement_contract.pdf | 7/7 | 4/5 (0.8) | 8 | 8/8 (1.0) | 8/8 (1.0) | 14 | 0/0 | 0.0 | 416 | 8 | 8 |
+
+## 分闸门计数
+- sample_service_contract.docx: G1 8/8；G2 8/8；G3 8/8
+- sample_procurement_contract.pdf: G1 8/8；G2 8/8；G3 8/8
+
+CSV: E:\project\lexflow\eval\results.csv

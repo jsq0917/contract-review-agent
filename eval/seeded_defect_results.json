@@ -1,0 +1,94 @@
+{
+  "samples": [
+    "examples\\sample_service_contract.docx",
+    "examples\\sample_procurement_contract.pdf",
+    "data\\synthetic\\contracts\\tech_0.docx",
+    "data\\synthetic\\contracts\\tech_1.docx",
+    "data\\synthetic\\contracts\\tech_2.docx",
+    "data\\synthetic\\contracts\\tech_3.docx",
+    "data\\synthetic\\contracts\\tech_4.docx",
+    "data\\synthetic\\contracts\\tech_5.docx",
+    "data\\synthetic\\contracts\\proc_0.docx",
+    "data\\synthetic\\contracts\\proc_1.docx",
+    "data\\synthetic\\contracts\\proc_2.docx",
+    "data\\synthetic\\contracts\\proc_3.docx",
+    "data\\synthetic\\contracts\\proc_4.docx",
+    "data\\synthetic\\contracts\\proc_5.docx",
+    "data\\synthetic\\contracts\\dev_0.docx",
+    "data\\synthetic\\contracts\\dev_1.docx",
+    "data\\synthetic\\contracts\\dev_2.docx",
+    "data\\synthetic\\contracts\\dev_3.docx",
+    "data\\synthetic\\contracts\\dev_4.docx",
+    "data\\synthetic\\contracts\\dev_5.docx"
+  ],
+  "total_findings": 39,
+  "total_variants": 281,
+  "total_caught_by_expected_gate": 281,
+  "false_positive": [],
+  "detail": [
+    {
+      "name": "编造条号",
+      "expect": "G1",
+      "variants": 39,
+      "caught_any": 39,
+      "caught_expected": 39,
+      "misses": []
+    },
+    {
+      "name": "张冠李戴法名",
+      "expect": "G1",
+      "variants": 39,
+      "caught_any": 39,
+      "caught_expected": 39,
+      "misses": []
+    },
+    {
+      "name": "篡改引文",
+      "expect": "G2",
+      "variants": 39,
+      "caught_any": 39,
+      "caught_expected": 39,
+      "misses": []
+    },
+    {
+      "name": "引用未生效版本",
+      "expect": "G3",
+      "variants": 39,
+      "caught_any": 39,
+      "caught_expected": 39,
+      "misses": []
+    },
+    {
+      "name": "条款不支撑结论",
+      "expect": "G4",
+      "variants": 39,
+      "caught_any": 39,
+      "caught_expected": 39,
+      "misses": []
+    },
+    {
+      "name": "有上限报成无上限",
+      "expect": "G4",
+      "variants": 8,
+      "caught_any": 8,
+      "caught_expected": 8,
+      "misses": []
+    },
+    {
+      "name": "金额/比例算错",
+      "expect": "G5",
+      "variants": 39,
+      "caught_any": 39,
+      "caught_expected": 39,
+      "misses": []
+    },
+    {
+      "name": "无依据（缺引用）",
+      "expect": "G1",
+      "variants": 39,
+      "caught_any": 39,
+      "caught_expected": 39,
+      "misses": []
+    }
+  ]
+}

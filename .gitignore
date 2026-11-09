@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+*.egg-info/
+
+# 运行数据（数据库、原文件、导出物）
+artifacts/
+data/*.db
+data/*.db-*
+data/failures.jsonl
+
+# 合成合同数据集（由 scripts/gen_synthetic_contracts.py 生成）
+data/synthetic/
+data/synthetic_v1/
+data/synthetic_v1_regen/
+
+# 向量缓存（由 bge-m3 运行时生成，可重建）
+data/embeddings/
+
+# 评测产物（可重复生成）
+eval/results.csv
+eval/results.md
+eval/synthetic_results.csv
+eval/synthetic_results.md
+eval/retrieval_results.csv
+eval/retrieval_results.md
+eval/retrieval_run*.log
+
+# 本地环境变量（仅保留占位示例）
+.env
+.env.*
+!.env.example
+
+# GPU 构建用的本地 torch wheel（体积大，不入库）
+docker/wheels/*.whl

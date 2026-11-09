@@ -1,0 +1,2 @@
+{"sample": "examples/sample_service_contract.docx", "stance": "甲方", "as_of": "2026-11-03", "expected_clause_count": 7, "expected_risk_clause_ids": ["C0002", "C0004", "C0005", "C0006"], "note": "自造样例标注，仅用于链路评测，非律师标注"}
+{"sample": "examples/sample_procurement_contract.pdf", "stance": "甲方", "as_of": "2026-11-03", "expected_clause_count": 7, "expected_risk_clause_ids": ["C0002", "C0003", "C0005", "C0006", "C0007"], "note": "自造样例标注，仅用于链路评测，非律师标注"}
