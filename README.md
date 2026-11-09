@@ -90,6 +90,18 @@ uv run streamlit run lexflow/ui/app.py # http://127.0.0.1:8501
 
 Streamlit UI 为单页演示：上传合同 → 选立场/as_of/engine → 审查 → 风险表（按风险等级排序，含规则 ID、法条依据、定位锚）→ 人工确认/驳回 → 下载 docx，并展示本次 LLM 调用次数、tokens、节点耗时与端到端耗时。`engine=mock` 时页面顶部显示红色横幅，明确这是固定规则演示、不是真实模型效果。
 
+#### 界面实拍（`engine=mock`）
+
+以下截图来自本机真实运行：API 监听 `127.0.0.1:18000`、Streamlit 监听 `127.0.0.1:18501`，在界面上显式选择 `engine=mock`，上传 `examples/sample_service_contract.docx` 后点击「开始审查」，未调用任何真实 API。数字只反映该次链路是否跑通，不代表模型能力。
+
+![风险表（mock）](docs/images/ui-risk-table.png)
+
+风险表按风险等级排序，包含规则 ID、法条依据与「定位锚」列；页面顶部保留 `engine=mock` 红色横幅。
+
+![成本与耗时（mock）](docs/images/ui-metrics.png)
+
+同一次运行的成本/耗时区域：LLM 调用 14 次、prompt/completion tokens 均为 0（mock 不产生真实 token），节点耗时合计 4717 ms、端到端 2792 ms。
+
 ### 1.5 测试与评测
 
 ```powershell
@@ -729,3 +741,7 @@ service 链路（含容器）按 CPU 运行，容器负责 API/UI 编排与检�
 - gold：由注入规则反推（被注入风险的那一条即 gold），**不是律师标注**
 - 复现：固定种子 `20261103`；v1 重新生成后 12 份文本 SHA 与阶段 1 落盘数据完全一致
 - 性质：**合成数据，非真实合同分布；指标不可外推**
+
+## License
+
+本项目采用 MIT License，Copyright (c) 2026 玖十七，详见 [LICENSE](LICENSE)。
