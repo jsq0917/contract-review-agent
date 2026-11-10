@@ -16,9 +16,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "eval"))
 
 from docx import Document
 
+import metrics
 from lexflow.parse import parse_document
 from lexflow.segment import segment_clauses
 from lexflow.service import AnalyzeService
@@ -44,8 +46,17 @@ CSV_FIELDS = [
     "rule_hits",
     "traceable_findings",
     "traceability_rate",
+    "cited_findings",
+    "uncited_findings",
     "findings_all_gates_pass",
     "findings_all_gates_pass_rate",
+    "findings_all_gates_pass_cited",
+    "gates_skipped_findings",
+    "risk_points",
+    "merged_both",
+    "legal_only",
+    "commercial_only",
+    "duplicate_findings",
     "G1_pass",
     "G1_total",
     "G2_pass",
@@ -87,6 +98,7 @@ def compute_entry(service: AnalyzeService, row: dict, gold_path: Path) -> dict:
 
     parsed = parse_document(sample)
     clauses = segment_clauses(parsed)
+    clause_text = {clause.clause_id: clause.text for clause in clauses}
     article_by_clause = {
         clause.clause_id: article_no_of(clause.text) for clause in clauses
     }
@@ -98,28 +110,21 @@ def compute_entry(service: AnalyzeService, row: dict, gold_path: Path) -> dict:
     found_articles.discard(None)
     hit_articles = gold_articles & found_articles
 
-    traceable = sum(
-        1
-        for finding in findings
-        if finding.get("original_quote")
-        and article_by_clause.get(finding.get("clause_id", "")) is not None
-    )
-    by_finding: dict[str, list[dict]] = {}
-    for verdict in verifications:
-        by_finding.setdefault(verdict["finding_id"], []).append(verdict)
-    all_gates_pass = sum(
-        1
-        for finding in findings
-        if len(by_finding.get(finding["finding_id"], [])) == 5
-        and all(item["passed"] for item in by_finding[finding["finding_id"]])
-    )
+    traceable = sum(1 for finding in findings if metrics.strict_traceable(finding, clause_text))
     gate_counts = {
         gate: {
-            "pass": sum(1 for item in verifications if item["gate"] == gate and item["passed"]),
+            "pass": sum(
+                1
+                for item in verifications
+                if item["gate"] == gate and metrics.gate_status(item) == "pass"
+            ),
             "total": sum(1 for item in verifications if item["gate"] == gate),
         }
-        for gate in ("G1", "G2", "G3", "G4", "G5")
+        for gate in metrics.GATES
     }
+    gates = metrics.gates_summary(findings, verifications)
+    dual = metrics.dual_review_stats(findings)
+    all_gates_pass = gates["all_pass"]
 
     docx_path = Path(result.docx_path or "")
     docx_rows = 0
@@ -149,8 +154,17 @@ def compute_entry(service: AnalyzeService, row: dict, gold_path: Path) -> dict:
         ),
         "traceable_findings": traceable,
         "traceability_rate": _ratio(traceable, len(findings)),
+        "cited_findings": gates["cited"],
+        "uncited_findings": gates["uncited"],
         "findings_all_gates_pass": all_gates_pass,
         "findings_all_gates_pass_rate": _ratio(all_gates_pass, len(findings)),
+        "findings_all_gates_pass_cited": gates["all_pass_cited"],
+        "gates_skipped_findings": gates["skipped_findings"],
+        "risk_points": dual["risk_points"],
+        "merged_both": dual["merged_both"],
+        "legal_only": dual["legal_only"],
+        "commercial_only": dual["commercial_only"],
+        "duplicate_findings": dual["duplicates"],
         "G1_pass": gate_counts["G1"]["pass"],
         "G1_total": gate_counts["G1"]["total"],
         "G2_pass": gate_counts["G2"]["pass"],
@@ -212,7 +226,17 @@ def main(argv: list[str] | None = None) -> int:
         "found_risk_clauses": sum(item["found_risk_clauses"] for item in results),
         "findings": sum(item["findings"] for item in results),
         "traceable_findings": sum(item["traceable_findings"] for item in results),
+        "cited_findings": sum(item["cited_findings"] for item in results),
+        "uncited_findings": sum(item["uncited_findings"] for item in results),
         "findings_all_gates_pass": sum(item["findings_all_gates_pass"] for item in results),
+        "findings_all_gates_pass_cited": sum(
+            item["findings_all_gates_pass_cited"] for item in results
+        ),
+        "risk_points": sum(item["risk_points"] for item in results),
+        "merged_both": sum(item["merged_both"] for item in results),
+        "legal_only": sum(item["legal_only"] for item in results),
+        "commercial_only": sum(item["commercial_only"] for item in results),
+        "duplicate_findings": sum(item["duplicate_findings"] for item in results),
         "llm_calls": sum(item["llm_calls"] for item in results),
         "prompt_tokens": sum(item["prompt_tokens"] for item in results),
         "completion_tokens": sum(item["completion_tokens"] for item in results),
@@ -235,8 +259,8 @@ def main(argv: list[str] | None = None) -> int:
         "> 数据性质：**合成合同**（模板 + 固定种子 + 风险条款注入）；gold 由注入规则反推，非律师标注。",
         "> mock 引擎下，以下数字只说明「注入风险是否被规则检出」与链路是否跑通，**不可外推到真实合同效果**。",
         "",
-        "| 合同 | 条款数 | gold风险条款 | 命中 | 条款召回 | 检出条款 | 条款precision | findings | 溯源率 | 五闸全过率 | 耗时ms | docx行数 | DB条数 |",
-        "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+        "| 合同 | 条款数 | gold风险条款 | 命中 | 条款召回 | 检出条款 | 条款precision | findings | 严格溯源率 | 引用/未引用 | 五闸全过率 | 双路：风险点/共同/法务独有/商务独有 | 耗时ms | docx行数 | DB条数 |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for item in results:
         lines.append(
@@ -244,7 +268,9 @@ def main(argv: list[str] | None = None) -> int:
             f"{item['gold_risk_clauses']} | {item['hit_risk_clauses']} | {_fmt(item['clause_recall'])} | "
             f"{item['found_risk_clauses']} | {_fmt(item['clause_precision'])} | {item['findings']} | "
             f"{item['traceable_findings']}/{item['findings']} ({_fmt(item['traceability_rate'])}) | "
+            f"{item['cited_findings']}/{item['uncited_findings']} | "
             f"{item['findings_all_gates_pass']}/{item['findings']} ({_fmt(item['findings_all_gates_pass_rate'])}) | "
+            f"{item['risk_points']}/{item['merged_both']}/{item['legal_only']}/{item['commercial_only']} | "
             f"{item['elapsed_ms']} | {item['docx_table_rows']} | {item['db_findings']} |"
         )
 
@@ -253,8 +279,12 @@ def main(argv: list[str] | None = None) -> int:
         "## 汇总（微平均，仅本次运行）",
         f"- 条款召回：{totals['hit_risk_clauses']}/{totals['gold_risk_clauses']} = {_fmt(micro_recall)}",
         f"- 条款 precision：{totals['hit_risk_clauses']}/{totals['found_risk_clauses']} = {_fmt(micro_precision)}",
-        f"- 溯源率：{totals['traceable_findings']}/{totals['findings']} = {_fmt(trace_rate)}",
-        f"- 五闸全过率：{totals['findings_all_gates_pass']}/{totals['findings']} = {_fmt(gates_rate)}",
+        f"- 严格溯源率（original_quote 是条款正文子串）：{totals['traceable_findings']}/{totals['findings']} = {_fmt(trace_rate)}",
+        f"- 引用/未引用：{totals['cited_findings']}/{totals['uncited_findings']}",
+        f"- 五闸全过率（skipped 不计通过）：{totals['findings_all_gates_pass']}/{totals['findings']} = {_fmt(gates_rate)}"
+        f"（其中有引用的 {totals['findings_all_gates_pass_cited']} 条）",
+        f"- 双路互补：风险点 {totals['risk_points']}（原始 findings {totals['findings']}，重复 {totals['duplicate_findings']}）；"
+        f"两路共同 {totals['merged_both']}，法务独有 {totals['legal_only']}，商务独有 {totals['commercial_only']}",
         f"- 调用次数：{totals['llm_calls']}；tokens(in/out)：{totals['prompt_tokens']}/{totals['completion_tokens']}",
         "",
         "## 各规则命中计数（按 findings 计数，跨合同累加）",

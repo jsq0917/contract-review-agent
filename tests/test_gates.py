@@ -66,9 +66,10 @@ def test_g3_expired_article_fails():
 
 def test_all_gates_pass_for_verbatim_current_article():
     ledger = [make_evidence()]
-    finding = make_finding()
+    finding = make_finding(rule_id="R-PEN-001", original_quote="违约金每日按千分之五计算。")
     results = verify_finding(finding, ledger, date(2026, 11, 3))
     assert all(item.passed for item in results)
+    assert all(item.status == "pass" for item in results)
     assert g2_verbatim(finding.cited_quote, ledger[0].quote)[0]
 
 
@@ -86,8 +87,8 @@ def test_g4_passes_when_clause_hits_detector():
         rule_id="R-PEN-001",
         original_quote="违约金每延迟一日按千分之五计算。",
     )
-    passed, detail = g4_grounded(finding)
-    assert passed
+    status, detail = g4_grounded(finding)
+    assert status == "pass"
     assert "R-PEN-001" in detail
 
 
@@ -97,23 +98,23 @@ def test_g4_blocks_capped_penalty_false_positive():
         rule_id="R-PEN-001",
         original_quote="违约金每日按合同总价的千分之三计算，累计不超过合同总价的百分之五。",
     )
-    passed, detail = g4_grounded(finding)
-    assert not passed
+    status, detail = g4_grounded(finding)
+    assert status == "fail"
     assert "排除项" in detail
 
 
-def test_g4_without_rule_id_degrades_to_citation_check():
-    """API 引擎不产出 rule_id，G4 退化为引文存在性检查，并在 detail 写明口径。"""
+def test_g4_without_rule_id_is_skipped_not_passed():
+    """API 引擎不产出 rule_id：G4 无法校验法条适用性，必须判 skipped 而不是 pass。"""
     finding = make_finding(rule_id=None, cited_quote="当事人可以约定违约金。")
-    passed, detail = g4_grounded(finding)
-    assert passed
-    assert "API 引擎" in detail
+    status, detail = g4_grounded(finding)
+    assert status == "skipped"
+    assert "不校验法条适用性" in detail
 
 
 def test_g4_without_rule_id_and_quote_fails():
     finding = make_finding(rule_id=None, cited_quote="")
-    passed, _ = g4_grounded(finding)
-    assert not passed
+    status, _ = g4_grounded(finding)
+    assert status == "fail"
 
 
 # ------------------------------------------------------------------ G5 数值一致
@@ -121,26 +122,62 @@ def test_g4_without_rule_id_and_quote_fails():
 
 def test_g5_passes_when_numbers_traceable():
     finding = make_finding(issue="违约金按 5% 计算且无上限", original_quote="违约金按 5% 计算。")
-    passed, _ = g5_numeric_consistent(finding)
-    assert passed
+    status, _ = g5_numeric_consistent(finding)
+    assert status == "pass"
 
 
 def test_g5_blocks_fabricated_number():
     finding = make_finding(issue="违约金按 8% 计算且无上限", original_quote="违约金按 5% 计算。")
-    passed, detail = g5_numeric_consistent(finding)
-    assert not passed
+    status, detail = g5_numeric_consistent(finding)
+    assert status == "fail"
     assert "8" in detail
 
 
 def test_g5_ignores_article_number_prefix():
     """「第585条」是条号，不是需要溯源的数值断言。"""
     finding = make_finding(issue="依据第585条，该违约金条款过高", original_quote="违约金按日计算。")
-    passed, _ = g5_numeric_consistent(finding)
-    assert passed
+    status, _ = g5_numeric_consistent(finding)
+    assert status == "pass"
 
 
 def test_g5_not_applicable_without_numbers():
     finding = make_finding(issue="违约金未设上限", original_quote="违约金按日计算。")
-    passed, detail = g5_numeric_consistent(finding)
-    assert passed
+    status, detail = g5_numeric_consistent(finding)
+    assert status == "pass"
     assert "不适用" in detail
+
+
+def test_g5_statutory_value_matches_chinese_numeral_in_law():
+    """法定值：issue 写 80%，条款原文只有 70%，但所引法条写「百分之八十」。
+
+    G5 的取材范围必须包含所引法条原文，否则会把正确的法定比较判成编造数值。
+    """
+    finding = make_finding(
+        issue="试用期工资为转正后工资的70%，低于法定80%下限",
+        original_quote="试用期工资为转正后工资的70%。",
+        cited_quote="劳动者在试用期的工资不得低于本单位相同岗位最低档工资或者劳动合同约定工资的百分之八十。",
+    )
+    status, detail = g5_numeric_consistent(finding, finding.cited_quote)
+    assert status == "pass"
+    assert "80" not in detail
+
+
+def test_g5_derived_value_is_skipped_not_failed():
+    """换算值：issue 写年化 182.5%，条款只写「每日千分之五」，应判 skipped 并复核。"""
+    finding = make_finding(
+        issue="按合同总额每日千分之五计息，折合年化约182.5%",
+        original_quote="任何一方违约的，应按合同总额每日千分之五向对方支付违约金。",
+    )
+    status, detail = g5_numeric_consistent(finding)
+    assert status == "skipped"
+    assert "182.5" in detail
+
+
+def test_g5_wrong_derived_value_still_fails():
+    """写了「折合年化」但算错，不能靠 skipped 蒙混过去。"""
+    finding = make_finding(
+        issue="按合同总额每日千分之五计息，折合年化约100%",
+        original_quote="任何一方违约的，应按合同总额每日千分之五向对方支付违约金。",
+    )
+    status, _ = g5_numeric_consistent(finding)
+    assert status == "fail"

@@ -16,6 +16,10 @@ def settings(tmp_path: Path) -> Settings:
         failures_path=tmp_path / "data" / "failures.jsonl",
         template_path=tmp_path / "assets" / "risk_report.docx",
         embedding_enabled=False,
+        # 不依赖本机是否装了 bge-reranker：置空后精排路径稳定落到“未配置模型”，
+        # 既跑得快，也保证测试机器之间的行为一致。
+        reranker_model="",
+        reranker_enabled=False,
     )
 
 

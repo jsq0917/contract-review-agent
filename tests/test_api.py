@@ -53,7 +53,41 @@ def test_health_fields_and_corpus(client):
     # 测试配置 embedding_enabled=False：最终 BM25-only，不应谎报 hybrid。
     assert payload["retrieval_mode"] == "bm25-only"
     assert payload["vector_ready"] is False
-    assert payload["reranker_enabled"] is False
+    # 精排状态拆成四项：配置、模型是否存在、是否已加载、跑在哪。
+    assert payload["reranker_configured"] is False
+    assert payload["reranker_model_found"] is False
+    assert payload["reranker_available"] is False
+    assert payload["reranker_device"] is None
+    # 没有模型时不预热，状态要如实说 skipped 而不是卡在 running。
+    assert payload["reranker_warmup"] == "skipped"
+    assert payload["reranker_warmup_s"] is None
+
+
+def test_analyze_with_rerank_requested_but_unavailable(client):
+    """请求精排但模型未配置：必须 200、降级 hybrid，并在 metrics 里说清没生效。"""
+    test_client, _svc = client
+    response = _upload(
+        test_client, ROOT / "examples" / "sample_service_contract.docx", rerank="true"
+    )
+    assert response.status_code == 200
+    metrics = response.json()["metrics"]
+    assert metrics["rerank_requested"] is True
+    assert metrics["rerank_used"] is False
+    assert metrics["rerank_applied"] == 0
+    assert metrics["rerank_fallback"] > 0
+    assert "未配置" in metrics["rerank_reason"]
+
+
+def test_analyze_without_rerank_keeps_hybrid(client):
+    """不传 rerank 时取 settings 默认（False），不发起任何精排调用。"""
+    test_client, _svc = client
+    metrics = _upload(test_client, ROOT / "examples" / "sample_service_contract.docx").json()[
+        "metrics"
+    ]
+    assert metrics["rerank_requested"] is False
+    assert metrics["rerank_used"] is False
+    assert metrics["rerank_applied"] == 0
+    assert metrics["rerank_reason"] is None
 
 
 def test_health_indexing_then_hybrid(client):
@@ -128,6 +162,9 @@ def test_analyze_review_export(client):
     assert body["findings_count"] == payload["findings_count"]
     assert Path(body["docx_path"]).exists()
     assert "export_docx" in body["metrics"]["node_latency_ms"]
+    # review 是续跑 export_docx，没有检索发生：不能把 analyze 的精排指标覆盖成零值。
+    assert body["metrics"]["rerank_requested"] is False
+    assert body["metrics"]["rerank_used"] is False
 
     exported = test_client.get(f"/export/{matter_id}")
     assert exported.status_code == 200

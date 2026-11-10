@@ -147,8 +147,13 @@ def review_clauses(
     failure_log: FailureLog | None = None,
     stance: str = "甲方",
     top_k: int = 3,
+    rerank: bool = False,
 ) -> tuple[list[Finding], list[str], int, int]:
-    """返回 (findings, warnings, prompt_tokens, completion_tokens)。"""
+    """返回 (findings, warnings, prompt_tokens, completion_tokens)。
+
+    ``rerank=True`` 时候选法条先经 CrossEncoder 精排。法务与商务两路传入的 query
+    完全相同，精排结果由 retriever 的单飞缓存复用，不会算两遍。
+    """
     system = LEGAL_SYSTEM if reviewer == "legal" else COMMERCIAL_SYSTEM
     findings: list[Finding] = []
     warnings: list[str] = []
@@ -159,7 +164,7 @@ def review_clauses(
 
     for clause in clauses:
         clause_start = time.perf_counter()
-        hits = retriever.search(clause.text[:600], top_k=top_k)
+        hits = retriever.retrieve(clause.text[:600], top_k, rerank=rerank)
         user = (
             f"CLAUSE_ID: {clause.clause_id}\n"
             f"CLAUSE_TYPE: {clause.clause_type}\n"

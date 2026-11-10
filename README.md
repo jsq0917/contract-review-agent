@@ -83,12 +83,12 @@ uv run streamlit run lexflow/ui/app.py # http://127.0.0.1:8501
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/health` | 引擎默认值、语料模式、法条数、检索模式（可能为 `indexing`）、`vector_ready`、向量后端/原因、embedding 设备、reranker 开关 |
-| POST | `/analyze` | 上传 PDF/docx，返回 `matter_id` 与风险清单（停在确认点） |
+| GET | `/health` | 引擎默认值、语料模式、法条数、检索模式（可能为 `indexing`）、`vector_ready`、向量后端/原因、embedding 设备；精排五项：`reranker_configured`（配置默认开）/ `reranker_model_found`（模型路径可解析，不加载权重）/ `reranker_available`（已加载可用）/ `reranker_device` 与 `reranker_reason`，外加启动预热状态 `reranker_warmup`（`running`/`ready`/`failed`/`skipped`）与 `reranker_warmup_s` |
+| POST | `/analyze` | 上传 PDF/docx，返回 `matter_id` 与风险清单（停在确认点）。可选表单字段 `rerank=true/false`，省略则取 `LEXFLOW_RERANKER_ENABLED` |
 | POST | `/review/{matter_id}` | 单人确认，恢复 `interrupt()` 并导出 docx |
 | GET | `/export/{matter_id}` | 下载 docx |
 
-Streamlit UI 为单页演示：上传合同 → 选立场/as_of/engine → 审查 → 风险表（按风险等级排序，含规则 ID、法条依据、定位锚）→ 人工确认/驳回 → 下载 docx，并展示本次 LLM 调用次数、tokens、节点耗时与端到端耗时。`engine=mock` 时页面顶部显示红色横幅，明确这是固定规则演示、不是真实模型效果。
+Streamlit UI 为单页演示：上传合同 → 选立场/as_of/engine（默认 `mock`，零成本）→ 审查 → 风险表（按风险等级排序，含规则 ID、法条依据、**五闸状态、引用原文**、定位锚）→ 核验详情（G1–G5 逐条说明）→ 人工确认/驳回 → 下载 docx，并展示本次 LLM 调用次数、tokens、节点耗时与端到端耗时。`engine=mock` 时页面顶部显示红色横幅，明确这是固定规则演示、不是真实模型效果；后端未启动时页面给出明确提示而不是抛异常。`skipped` 显示为「未判定」：API 引擎的 G4 只确认存在引文，不校验法条适用性，不计入「五闸全过」。
 
 #### 界面实拍（`engine=mock`）
 
@@ -141,9 +141,12 @@ uv run python eval/run_retrieval_eval.py       # 三档检索评测（dense / hy
 | `LEXFLOW_EMBEDDING_DEVICE` | 继承 `LEXFLOW_DEVICE` | 单独覆盖 embedding 设备；服务链路建议显式设为 `cpu`（见 [§2.6](#26-检索与降级)） |
 | `LEXFLOW_STATUTE_TOP_K` | `3` | 每个条款检索的候选法条数；默认 3，`10` 仅作对照实验的可选开关（见 [§4.5](#45-top-k-对照实验与结论2026-11)） |
 | `LEXFLOW_EMBED_CACHE` | `data/embeddings` | 向量缓存目录 |
-| `LEXFLOW_RERANKER_ENABLED` | `false` | 默认关闭；评测脚本内部按需加载 |
+| `LEXFLOW_EMBED_RECOVER_RETRIES` | `3` | 向量层运行时故障的自愈预算：连续失败超过该次数才转终态 BM25-only（`0` = 一次失败即终态，等于旧行为） |
+| `LEXFLOW_EMBED_RECOVER_COOLDOWN_S` | `30` | 两次自愈重建之间的冷却秒数，避免抖动时反复重建 |
+| `LEXFLOW_RERANKER_ENABLED` | `false` | 新审查的**默认**是否启用精排；单次请求可用 `/analyze` 的 `rerank` 参数覆盖。模型能否加载由 `LEXFLOW_RERANKER_MODEL` 决定，与此开关无关 |
 | `LEXFLOW_RERANKER_MODEL` | `$LEXFLOW_MODEL_DIR/bge-reranker-v2-m3`（存在时） | 本地 reranker 路径 |
-| `LEXFLOW_RERANKER_DEVICE` | 继承 `LEXFLOW_DEVICE` | 单独覆盖 reranker 设备 |
+| `LEXFLOW_RERANKER_DEVICE` | 继承 `LEXFLOW_DEVICE` | 单独覆盖 reranker 设备。有 CUDA torch 时**显式设 `cuda`**，同时把 embedding 固定为 `cpu`，避免两模型同卡 |
+| `LEXFLOW_RERANKER_WARMUP` | `true` | 启动时后台加载精排模型，把 20s 加载从首问挪到启动；模型不存在或 `false` 时跳过。预热线程不阻塞服务启动，失败只记原因 |
 | `LEXFLOW_DATA_DIR` / `LEXFLOW_ARTIFACTS_DIR` / `LEXFLOW_DB` | `data` / `artifacts` / `data/lexflow.db` | 路径 |
 | `LEXFLOW_CORPUS` | `data/corpus/law_articles.jsonl` | 法条语料 |
 | `LEXFLOW_FAILURES` | `data/failures.jsonl` | 失败归档路径 |
@@ -285,7 +288,11 @@ lexflow/
 - 混合检索：中文 2-gram BM25 + 本地 bge-m3 dense 向量 + RRF 融合；可选 bge-reranker-v2-m3。
 - 向量默认指向 `$LEXFLOW_MODEL_DIR/bge-m3`；`sentence-transformers` 未安装、路径不存在或加载失败时自动退化为 `bm25-only`，不崩溃，并在 `/health` 的 `vector_reason` 与 `retrieval_mode` 中显示原因。
 - 向量缓存：`data/embeddings/<sha256(model+corpus)>.npy/.json`；重跑直接读缓存，不重复编码。
-- **首次索引并发语义**：加载在后台线程中完成，状态为 `new / indexing / ready / bm25-only`。`/health` 在构建中返回 `retrieval_mode=indexing`、`vector_ready=false`，**不会把正在建索引谎报成 bm25-only**；`mode`/`search` 会等待同一后台线程结束后再返回最终模式。API 层测试覆盖 `indexing → hybrid` 状态流转。
+- **首次索引并发语义**：加载在后台线程中完成，状态为 `new / indexing / ready / degraded / bm25-only`。`/health` 在构建中返回 `retrieval_mode=indexing`、`vector_ready=false`，**不会把正在建索引谎报成 bm25-only**；`mode`/`search` 会等待同一后台线程结束后再返回最终模式。API 层测试覆盖 `indexing → hybrid` 状态流转。
+- **降级分两种，不能混为一谈**（`tests/test_retriever_recovery.py` 四条用例覆盖）：
+  - **终态 `bm25-only`**：依赖缺失、模型路径不存在、被 `LEXFLOW_EMBEDDING_ENABLED=false` 禁用。重试无意义，直接落终态，不再自愈。
+  - **可自愈 `degraded`**：模型已成功加载过，但构建索引或单次查询抛异常（显存不足、单次 forward 失败）。当次请求由 BM25 兜底返回，冷却期过后在后台重建，恢复后写 `retrieval.vector_recovered` 日志并回到 `hybrid`；连续失败超过 `LEXFLOW_EMBED_RECOVER_RETRIES`（默认 3）次才转终态。`/health` 额外给出 `vector_degraded / vector_failures / next_retry_in_s`，自愈重建**不阻塞**在途请求。
+  - 之前的口径是「一次向量异常 = 本进程永久 BM25」，只能靠重启恢复；上面那条 service 链路 `cudaErrorMemoryAllocation` 就是被这个口径放大成「整条链路不可用」的，现在能自愈回来。
 - **统一设备解析层** `lexflow/devices.py`：`LEXFLOW_DEVICE=auto` 时 `cuda` 可用则用，否则 `cpu`；embedding 与 reranker 共用。实际设备写入 JSON 日志 `retrieval_device`、`/health` 的 `embedding_device`、报告 `metrics.retrieval_device` 与检索评测结果。
 - 本机硬件：`torch 2.14.1+cu130`，`torch.cuda.is_available()=True`，`device_count=1`，设备名 `NVIDIA GeForce RTX 4060 Laptop GPU`，显存 **8187 MB**；驱动 610.47 / CUDA UMD 13.3。
 - **GPU 可用性有分叉（2026-11 top-k 实验实测）**：直接调用 `LocalEmbedder` 的脚本路径（如 `eval/run_retrieval_eval.py`）可在 `cuda` 上正常编码，三档检索召回与 CPU 完全一致；但从 **service 链路**（`AnalyzeService` → 图节点 → 检索器）调用 CUDA 编码时报 `cudaErrorMemoryAllocation`，向量层降级为 `bm25-only`。因此交付口径是：**GPU 仅保证直接调用 embedder 的脚本路径，服务链路按 CPU 运行**（`LEXFLOW_EMBEDDING_DEVICE=cpu`）。不能写成「GPU 不可用」，也不能写成「GPU 一切正常」。
@@ -352,12 +359,13 @@ mock 的风险判定是显式规则表（代码同源：`lexflow/review/rules.py
 
 ### 3.2 两路审查的合并
 
-法务、商务两路各自调用同一张 mock 规则表，同一条款会被两路各报一次。**合并已下沉到 reducer**（`lexflow/graph/state.py: merge_findings`），按 `(clause_id, risk_type)` 合成一条：
+法务、商务两路各自调用同一张 mock 规则表，同一条款会被两路各报一次。**合并已下沉到 reducer**（`lexflow/graph/state.py: merge_findings`），按 `(clause_id, risk_type, 引文)` 合成一条：
 
 - 主条目取风险等级最高者，同等级时法务优先；
 - `reviewers` 记录两路来源（如 `["legal","commercial"]`）；
 - 两路 issue / suggestion 表述不同时，按 `[法务]` / `[商务]` 前缀拼接，两边的说法都保留；
-- `risk_type` 为空或 `other` 时不合并——没有可靠的类型键，强行合并会把两个不同问题压成一条。
+- **引文必须互相包含才合并**：同一条款里的两句话（如工伤句与婚育句）即使 `risk_type` 相同也保持两条，避免合并后只剩一份引文、Issue 一半没支撑；
+- `risk_type` 为空或 `other` 时不做跨路合并，只在引文与 issue 归一化后完全相同（完全重复）时去重来源。
 
 **为什么放在 reducer 而不是节点里**：节点返回的是「合并后的完整列表」，但 reducer 只做并集，没被覆盖到的旧条目（另一路的原始 `finding_id`）会被 union 回来，合并结果当场被撤销。这个 bug 在 2026-11-07 之前一直存在——合并函数写了、也在 `bind_evidence` 里调了，但 findings 始终是 8 条，且没有任何测试覆盖它。放到 reducer 里，两路写进来那一刻就合并，不存在中间态。
 
@@ -369,13 +377,13 @@ mock 的风险判定是显式规则表（代码同源：`lexflow/review/rules.py
 
 以下均为**本机实际运行测得**，仅代表这一次运行；每条都给出可复跑命令。
 
-> **口径变更（2026-11-07）**：`merge_findings` reducer 已做跨路合并，同一 `(clause_id, risk_type)` 只保留一条，findings 数约为旧口径的一半。带 `matter_id` 的历史记录保留**合并前**的原值以便对照；「示例 DOCX / PDF 评测」两行已按新口径重跑。
+> **口径变更（2026-11-10）**：跨路合并键从 `(clause_id, risk_type)` 收紧为 `(clause_id, risk_type, 引文)`——同一条款里的两句话不会再被拼成一条「嵌合体」。同日核验闸改为三态（pass / fail / skipped）：API 引擎没有 `rule_id` 时 G4 记 **skipped**，不再算通过；G5 的换算值也记 skipped。下表已按新口径重跑（2026-11-10）。
 
 ### 4.1 最终回归数字表
 
 | 项目 | 实测结果 | 命令 / 来源 | 性质 |
 |---|---|---|---|
-| 单元/集成测试 | `62 passed, 1 warning` | `uv run pytest -q`（10.23s，2026-11-07 复核） | 真实执行 |
+| 单元/集成测试 | `106 passed, 1 warning` | `uv run pytest -q`（2026-11-10 复核） | 真实执行 |
 | 离线演示（热缓存） | `matter-9b25b21a2b`；8 findings（合并前口径）；分析 17835 ms + 确认/导出 70 ms；docx 38564 B；节点合计 1677 ms；`hybrid/cuda`；`llm_calls=14`、tokens 0/0 | `uv run python scripts/demo.py` | mock + 合成示例 |
 | 离线演示（空数据目录、空向量缓存） | `matter-66e706190c`；8 findings（合并前口径）；分析 34670 ms（含首次索引）；确认/导出正常 | 设 `LEXFLOW_DATA_DIR/ARTIFACTS_DIR/DB/EMBED_CACHE` 到全新临时目录后跑 demo | mock + 冷启动 |
 | 示例 DOCX 评测 | 条款 7/7、风险召回 **4/4**、findings **4**、溯源 4/4、五闸全过 4/4；`bm25-only` | `uv run python eval/run_eval.py` | mock + 自造样本 |
@@ -388,8 +396,8 @@ mock 的风险判定是显式规则表（代码同源：`lexflow/review/rules.py
 | 合成集 v1（12 份 / 18 处） | 条款召回 **18/18**、precision **18/18**、findings 18、溯源 18/18、五闸全过 18/18 | `uv run python eval/run_synthetic_eval.py --gold data/synthetic_v1/gold.jsonl --out-csv eval/synthetic_results_v1_after.csv --out-md eval/synthetic_results_v1_after.md --label "v1-after"` | 合成数据 |
 | 合成集 v2（18 份 / 30 处） | 条款召回 **30/30**、precision **30/30**、findings 30、溯源 30/30、五闸全过 30/30 | `uv run python eval/run_synthetic_eval.py` | 合成数据 |
 | 种子缺陷（五闸双向） | 8 类植入错误 **281/281** 检出（20 份合同 / 39 条 findings）；对照组误报 **0/39** | `uv run python eval/seeded_defect.py` | mock + **程序植入**，非真实错案 |
-| API 引擎（真实模型） | docx：召回 **3/4**、findings 8、溯源 8/8、五闸 1/8、¥0.1552；pdf：召回 **5/5**、findings 12、溯源 12/12、五闸 2/12、¥0.1217 | `uv run python eval/run_eval.py --engine api` | **真实 API 单次**，样本 2，详见 §4.6 |
-| 真实劳动合同冒烟 | mock **1** 条 findings vs api **13** 条；api 溯源 **13/13**、引用覆盖 6/13、¥0.2045、163 s | `uv run python eval/run_contract_smoke.py --dir examples/real --engine api` | 真实合同 1 份，无 gold，详见 §4.7 |
+| API 引擎（真实模型） | docx：召回 **3/4**、findings 8、严格溯源 8/8、引用 4/8、五闸 0/8、¥0.1656；pdf：召回 **5/5**、findings 11、严格溯源 11/11、引用 1/11、五闸 0/11、¥0.1568。五闸为 0 是因为 G4 在 API 路径固定 skipped（不校验法条适用性），不是闸门失效 | `uv run python eval/run_eval.py --engine api` | **真实 API 单次**，样本 2，详见 §4.6 |
+| 真实劳动合同冒烟 | mock **1** 条 vs api **12** 条；api 严格溯源 **12/12**、引用 5/12、五闸 0/12、9 个风险点（两路全部重合）、¥0.1782、153 s | `uv run python eval/run_contract_smoke.py --files examples/real/labor_contract.docx --engine api` | 真实合同模板 1 份，无 gold，详见 §4.7 |
 | 法条语料 | 1465 条（1260 / 107 / 98）；两次构建 SHA256 相同；劳动法 107 条归一化、正文替换 1018 字、残留 0 | `uv run python scripts/build_corpus.py`（连续两次） | 真实法条 |
 | 检索评测对齐 | 4 个文件 35/95/125/200；按 question 去重 330；剔除 5 条空标注；纳入 **325** 题；gold 条号 **626** | `uv run python eval/run_retrieval_eval.py` | 外部标注 |
 | 检索三档（评测脚本路径 GPU） | dense/hybrid/rerank 条号召回@5 = **405/626、398/626、439/626**；@10 = **468/626、471/626、501/626**；问题命中@5 均 325/325 | 同上，见 `eval/retrieval_results.md` | 外部标注 |
@@ -507,7 +515,7 @@ mock 的风险判定是显式规则表（代码同源：`lexflow/review/rules.py
 
 - 其他已知偏差：B 组有 2 条带法条 finding 的 G1 不通过（`sample_service_contract.docx` C0002 引民法典第八百八十二条、`tech_2.docx` C0007 引民法典第五百五十八条，均为「证据账本中不存在」），说明扩召回也不能保证证据账本覆盖。
 
-### 4.6 mock 与真实 API 对照（2026-11-07）
+### 4.6 mock 与真实 API 对照（2026-11-10）
 
 命令：`uv run python eval/run_eval.py --engine api`（结果落 `eval/results_api.csv`、`eval/results_api.md`）。
 
@@ -515,55 +523,58 @@ mock 的风险判定是显式规则表（代码同源：`lexflow/review/rules.py
 |---|---|---|
 | 条款数 | 7/7 / 7/7 | 7/7 / 7/7 |
 | 风险条款召回 | 4/4 / 4/5 | **3/4 / 5/5** |
-| findings | 4 / 5 | 8 / 12 |
-| 溯源率 | 4/4 / 5/5 | **8/8 / 12/12** |
-| 五闸全过 | 4/4 / 5/5 | **1/8 / 2/12** |
+| findings | 4 / 5 | 8 / 11 |
+| 严格溯源率 | 4/4 / 5/5 | **8/8 / 11/11** |
+| 引用 / 未引用 | 4/0 / 5/0 | **4/4 / 1/10** |
+| 五闸全过 | 4/4 / 5/5 | **0/8 / 0/11** |
+| 双路（风险点 / 两路共同 / 法务独有 / 商务独有） | 4/4/0/0 / 5/5/0/0 | **7/6/1/0 / 10/8/0/2** |
 | LLM 调用 | 14（计次不计费） | 14 |
-| tokens(in/out) | 0 / 0 | 9,720/16,976；9,278/12,890 |
-| 成本 | 0 | **¥0.1552 / ¥0.1217** |
-| 耗时 | 约 0.3 s | 68.6 s / 69.0 s |
+| tokens(in/out) | 0 / 0 | 9,728/18,262；10,116/17,070 |
+| 成本 | 0 | **¥0.1656 / ¥0.1568** |
+| 耗时 | 20.6 s / 1.9 s | 99.3 s / 73.2 s |
 
-**三个必须一起说的结论**：
+**四个必须一起说的结论**：
 
-1. **召回打平，但漏的和补的位置不同。** 合计 8/9，与 mock 相同。差别在于：docx 的 C0006（管辖）被真实模型**整条不报**，而 pdf 的 C0006 反而补上了。原因写在 warnings 里——模型判定「候选法条不覆盖协议管辖效力，民事诉讼法相关规定未在候选法条中」，选择不产出 finding；mock 规则则用民法典第四百七十条勉强挂上。**同一份语料，规则引擎会硬报，模型会不报，两种错法不同。**
+1. **召回合计 8/9，与 mock 相同。** docx 的 C0006（管辖）被真实模型**整条不报**，pdf 的 C0006 反而补上了。模型判定「候选法条不覆盖协议管辖效力，民事诉讼法相关规定未在候选法条中」，选择不产出 finding；mock 规则则用民法典第四百七十条勉强挂上。**同一份语料，规则引擎会硬报，模型会不报，两种错法不同。**
 
-2. **溯源率 100%（8/8、12/12）。** 这是真实模型下最稳的一项：每条 finding 都能回到条款原文的段落号与字符 span，与有没有引用法条无关。
+2. **严格溯源 100%（8/8、11/11）。** `original_quote` 归一化后都是所属条款正文的子串，与有没有引用法条无关。
 
-3. **五闸全过率只有 12.5%–16.7%，不是闸门坏了。** 20 条 finding 里 17 条 `law_name` 为空——模型主动拒引（判定候选法条不覆盖该风险）。按现有口径（G1 要求必须有真实条号），无引用必然不过。**这暴露的是产品口径问题，不是校验问题**：无引用的风险提示不该和「有引用且校验通过」混在同一个通过率里。
+3. **五闸全过 0/19，但原因要拆成两半。** 14/19 条没有引用（模型主动拒引），G1–G3 必然不过；剩下 5 条有引用的 finding，G4 在 API 路径固定为 **skipped**——只确认「模型填了引文」，不校验「这条法条是否适用」，所以不再计入通过。**这不是闸门坏了，是旧口径把 skipped 当成 pass 造成的虚高。** 引用 / 未引用已在评测输出里分列。
 
-> 如果要改，方向是给 finding 加 `citation_status`（`cited` / `uncited_by_model`），两类分开统计；本次不改，避免与既有 87/88 口径的 A/B 实验混在一起。
+4. **G5 现在会把「换算值」和「编造值」分开。** docx 的 `182.5%`（原文是每日千分之五，×365 折合）判 skipped 并写出复核过程；pdf 的 `109.5` 同样。pdf 另有一条 `200` 在条款原文与所引法条里都找不到出处，判 fail——这是真实抓到的数值失配。
 
-**局限**：样本 2 份、单次运行、`bm25-only`（关闭向量以规避容器内存问题）；单份成本 ¥0.12–0.16，30 份合成集全跑约 ¥4、约 35 分钟，未做。
+**局限**：样本 2 份、单次运行、`bm25-only`（关闭向量以规避容器内存问题）；单份成本 ¥0.16–0.18，30 份合成集全跑约 ¥4、约 35 分钟，未做。模型输出非确定，重跑条数与引用会变。
 
-### 4.7 真实劳动合同冒烟（2026-11-07）
+### 4.7 真实劳动合同冒烟（2026-11-10）
 
-样本：`examples/real/labor_contract.docx`（795 字 / 6 条款），来自本地一份公开劳动合同模板，含多处明显违法条款。**这是仓库里唯一的非合成、非示例合同**，用于验证「管线在没见过的文档上会不会退化」——这类指标不需要 gold。
+样本：`examples/real/labor_contract.docx`（795 字 / 6 条款），来自本地一份公开劳动合同模板（**模板，不是签署合同**），含多处明显违法条款。**这是仓库里唯一的非合成、非示例合同**，用于验证「管线在没见过的文档上会不会退化」——这类指标不需要 gold。
 
-命令：`uv run python eval/run_contract_smoke.py --dir examples/real --engine {mock|api}`
+命令：`uv run python eval/run_contract_smoke.py --files examples/real/labor_contract.docx --engine {mock|api}`
 
-| 引擎 | findings | 溯源率（严格） | 引用覆盖 | 五闸全过 | 成本 | 耗时 |
-|---|---:|---:|---:|---:|---:|---:|
-| mock | **1** | 1/1 | 1/1 | 1/1 | 0 | 277 ms |
-| api | **13** | **13/13** | 6/13 | 5/13 | ¥0.2045 | 163 s |
+| 引擎 | findings | 去重后风险点 | 严格溯源 | 引用 / 未引用 | 五闸全过 | 成本 | 耗时 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| mock | **1** | 1 | 1/1 | 1/0 | 1/1 | 0 | 22.3 s（含模型加载） |
+| api | **12** | **9**（3 条重复） | **12/12** | 5/7 | **0/12** | ¥0.1782 | 153 s |
 
-**结论一：规则表是领域绑定的。** 9 条 mock 规则是按商务合同写的（付款、违约金上限、解除、管辖、保密、不可抗力、责任上限、验收、交付），遇到劳动合同只命中 1 条。真实模型在同一份文档上报出 13 条，覆盖：
+**结论一：规则表是领域绑定的。** 9 条 mock 规则是按商务合同写的（付款、违约金上限、解除、管辖、保密、不可抗力、责任上限、验收、交付），遇到劳动合同只命中 1 条。真实模型在同一份文档上报出 12 条、去重后 9 个风险点，覆盖：
 
 - 试用期工资 70% 低于法定 80% 下限（劳动合同法第二十条）
-- 试用期期限未与合同期限挂钩（第十九条）
-- 岗位/工作地点可单方随时调整、乙方「必须服从」（第八条）
-- 工资由甲方单方确定、可用实物替代（第八十五条）
-- 社保办理责任全部转嫁劳动者（劳动法第一百条）
-- 工伤责任由乙方自行承担（劳动法第九十一条）
-- 不得结婚或生育、否则单方解除不给补偿（**未引法条**）
+- 单方调岗、可派遣至全国任何地点且乙方必须服从（劳动合同法第八条）
+- 工资可由实物替代（劳动法第四十八条）
+- 社保办理责任转嫁劳动者（劳动法第七十二条）
 - 提前离职违约金为上月工资 3 倍（未引法条）
-- 入职收取押金（未引法条）
+- 不得结婚或生育、否则单方解除不给补偿（劳动合同法第四十七条）
+- 工伤责任由乙方自行承担（未引法条）
 - 未尽事宜由甲方单方解释（未引法条）
+- 入职收取押金（未引法条）
 
-**13 条全部可溯源到条款原文**（引文是条款正文子串），6 条引到具体条号。这说明：规则引擎的上限由规则表决定，模型的上限由 prompt 与检索决定；换合同类型时前者直接失效，后者仍能工作。
+**12 条全部可溯源到条款原文**（引文是条款正文子串），5 条引到具体条号。规则引擎的上限由规则表决定，模型的上限由 prompt 与检索决定；换合同类型时前者直接失效，后者仍能工作。
 
-**结论二：合并键不够用。** C0005（工伤责任）与 C0006（单方解释权）各被报了两次——两路给出的 `risk_type` 不同，`(clause_id, risk_type)` 合不上。这是 §3.2 合并口径的已知边界，不是本次改动引入的。
+**结论二：双路在这份合同上没有互补。** 9 个风险点全部由法务路先报、商务路重复报到（`merged_both=9`，`legal_only=0`，`commercial_only=0`）。示例 docx 上商务独有 1 条，示例 pdf 上商务独有 2 条、法务独有 5 条——双路是否互补取决于合同类型，不能笼统说「两个 agent 一定比一个好」。
 
-**局限**：真实合同只有 1 份，不足以支撑任何比率结论；上表只说明「能跑通且抓对了这些点」，不是准确率。
+**结论三：仍有 3 条重复没合掉。** 同一句话被两路以不同 `risk_type` 各报一次（如 C0002 的调岗、C0005 的 3 倍违约金、C0006 的单方解释权），合并键要求 `(clause_id, risk_type, 引文)` 三者一致，`risk_type` 不同就留两条。这是当前合并策略的边界，不是 bug；**代价是同一句话可能出现两条措辞不同的 finding**。
+
+**局限**：真实合同只有 1 份模板，不足以支撑任何比率结论；上表只说明「能跑通且抓对了这些点」，不是准确率。模型输出非确定，重跑条数会变（上一次为 13 条）。
 
 ---
 
@@ -695,21 +706,25 @@ service 链路（含容器）按 CPU 运行，容器负责 API/UI 编排与检�
 - 合成合同 v2 为 3 个模板 × 6 个变体 = 18 份、8 类风险；分布与真实合同差距大；注入式 gold 只覆盖注入风险，不覆盖模板中未注入的其他不利条款。v2 的 30/30 是规则与注入刻意对齐的结果。
 - 管辖规则只引用民法典第四百七十条（争议解决方法）；本地语料不含民事诉讼法，规则不能判断管辖条款的实体效力，只能提示核对。
 - 解除规则只把无理由/随时/单方解除视为风险；「两次维修仍不能正常使用后可解除」这类合法救济条件不命中，因此在示例采购 PDF 的 5 条自造 gold 中漏 1 条（`C0006`）。
-- 跨路合并按 `(clause_id, risk_type)` 做，`risk_type` 为空或 `other` 时不合并——没有可靠类型键时留两条。示例 DOCX 现为 4 条 findings 对应 4 个风险点。
-- 混合检索的向量部分已接入本地 bge-m3。**GPU 可用性有分叉**：直接调用 `LocalEmbedder` 的脚本路径可用（`torch 2.14.1+cu130` / RTX 4060 8187 MB）；service 链路（`AnalyzeService` → 图节点 → 检索）调用 CUDA 编码时报 `cudaErrorMemoryAllocation`，向量层降级 `bm25-only`。交付口径是 service 链路按 CPU 运行。
+- 跨路合并按 `(clause_id, risk_type, 引文)` 做，引文不同不合并；`risk_type` 为空或 `other` 时只在完全重复时去重来源。代价是同一句话若被两路标成不同 `risk_type`，会保留两条（劳动合同实测 12 条 findings / 9 个风险点）。示例 DOCX 为 4 条 findings 对应 4 个风险点。
+- 混合检索的向量部分已接入本地 bge-m3。**GPU 可用性有分叉**：直接调用 `LocalEmbedder` 的脚本路径可用（`torch 2.14.1+cu130` / RTX 4060 8187 MB）；service 链路（`AnalyzeService` → 图节点 → 检索）在 embedding 与 reranker **同卡**时会报 `cudaErrorMemoryAllocation`（两个模型合计 4.25 GB 权重 + CUDA context，对 8 GB 卡且桌面已占 2.3 GB 余量太紧）。
+  - 2026-11-10 起本机改为**拆分设备**：`LEXFLOW_EMBEDDING_DEVICE=cpu` + `LEXFLOW_RERANKER_DEVICE=cuda`，实测 service 链路正常（`/health` 报 `embedding_device=cpu`、`reranker_device=cuda`）。bge-m3 只用在建索引（一次性、有缓存）与每问编码一条短文本，放 CPU 的代价可以接受；精排才是重活。
+  - 注意 Windows 上 **torch 2.15.x 没有 CUDA 轮子**（cu130/cu126 最高 2.14.1），本地 venv 因此固定在 `2.14.1+cu130`；`uv.lock` 里仍是 2.15.0（CPU），所以 `scripts/dev.ps1` 会在 sync 时加 `--inexact --no-install-package torch` 保住它，并由 `scripts/enable-cuda.ps1` 兜底（幂等）。
 - 检索评测的 325 题来自外部既有 QA/gold 集，题目与法条存在较强词汇重合，问题命中在 top-5 已饱和；条号召回仍只覆盖 626 个标注的一部分，不能外推。
-- bge-reranker 在 GPU 上约 0.46s/题（20 候选），CPU 约 3.08s/题；默认不开启。
+- bge-reranker 在 GPU 上约 0.46s/题（20 候选），CPU 约 3.08s/题；**默认不开启**，但已接入审查链路：`/analyze` 的 `rerank` 参数（或 UI 开关）按次启用，候选默认收敛到 `max(10, top_k*3)`，并按 `(query, top_k, candidate_k)` 做单飞 + LRU 缓存——法务与商务两路用同一条款文本，同一次打分复用。报告 `metrics` 里的 `rerank_requested / rerank_used / rerank_applied / rerank_fallback / rerank_cache_hits / rerank_reason` 用于区分“开了开关”和“真的精排了”，降级不静默。
+- 本机实测（`sample_service_contract.docx`，7 条款 / 4 findings，mock engine）：CPU 版关闭 380ms、开启 35.6s（含模型加载约 15s）；换 `torch 2.14.1+cu130` 后 `reranker_device=cuda`，**模型已热时整单 2.42s**（对照关闭 0.18s），热态单次精排 0.137s、冷启动首次 0.32s，`reranker.load()` 约 20.2s——这笔加载是每进程一次的固定成本，不是每单成本。18 次调用里 7 次命中缓存（法务/商务同 query）。
+- 启动预热（`LEXFLOW_RERANKER_WARMUP=true`，默认）实测：`AnalyzeService` 构造 + 首个 `/health` 仅 **0.22s**（不等模型），约 25.3s 后 `reranker_warmup=ready`（含 `sentence-transformers` 导入约 5s），随后**首单 3.7s**（未预热时同一单要 26.8s）。预热状态在 `/health` 可见，加载失败落到 `failed` + `reranker_reason`，不会假装就绪。
 - 失败归档 `data/failures.jsonl` 只追加、不做轮转；真实 API 下的非法输出比例尚未统计。
 - `/health` 并发竞态已修复，但首次建索引仍可能需要较长时间（CPU 全量编码约 2 分钟，缓存命中则秒级）。
 - docx 文件格式不保存分页信息，本系统**不做页码推断**：docx 的 `page_no` 置空，改用 `§段落号 [章节标题] [chars span]` 定位锚；PDF 的 `page_no` 来自 PyMuPDF 真实版面块，但它是 **PDF 页序（page index + 1），不是打印页码**，有封面/页码偏移时不能画等号。
-- Streamlit UI 只做了代码层与 API 层的验证，**未做浏览器端全链路点击验证**（上传→分析→确认→下载没有用浏览器自动化跑过）；演示与回归以 `scripts/demo.py`、CLI 和 API 测试为准。
+- Streamlit UI 现由 `tests/test_ui.py` 用 `streamlit.testing.v1.AppTest` 覆盖脚本渲染与「开关值在提交时生效」，但仍**未做浏览器端全链路点击验证**（上传→分析→确认→下载没有用浏览器自动化跑过）；演示与回归以 `scripts/demo.py`、CLI 和 API 测试为准。
 - 示例采购 PDF 的风险召回为 4/5，漏掉的是 `C0006`（“两次维修仍不能正常使用后可解除”）；规则只把无理由/随时/单方解除视为风险，未覆盖该合法救济条件。
 - `eval` 的示例合同召回率基于自造标注，样本量 2，不能外推；合成集指标也不能外推。
 - 扫描件 OCR 未做自动化测试；未安装 `ocr` extra 时会明确报错。
 - 未做并发/多用户隔离，API 为单机演示用途。
 - GPU 容器的最终可用性见 §5.3；即使容器内 `cuda` 不可用，也只影响容器，不影响宿主机直接调用 embedder 的脚本路径。
-- **闸门不校验「法条适用性」**：G1 查条号存在、G2 查引文逐字、G3 查 as-of 时效、G5 查数值有原文出处，G4 用规则的判定项/排除项复判「这一条款是否真的构成该风险」。**这五道没有一道判断「这条法条是否适用于这个条款」**，所以「条号对但法条错」的引用仍可通过。G4 挡的是条款级误报（如把写了上限的违约金报成无上限），不是法条级错配。top-k 扩召回会提高后者的绝对数量（见 [§4.5](#45-top-k-对照实验与结论2026-11)）。
-- **规则表只覆盖商务合同**：9 条 mock 规则按付款 / 违约金 / 解除 / 管辖 / 保密 / 不可抗力 / 责任上限 / 验收 / 交付设计，遇到劳动合同等其他类型只命中个别条款（§4.7 实测 mock 1 条 vs api 13 条）。换领域要重写规则表，这不是调参能解决的；真实模型路径不受此限，但会引入拒引与不稳定。
+- **闸门不校验「法条适用性」**：G1 查条号存在、G2 查引文逐字、G3 查 as-of 时效、G5 查数值有原文出处，G4 用规则的判定项/排除项复判「这一条款是否真的构成该风险」。**这五道没有一道判断「这条法条是否适用于这个条款」**，所以「条号对但法条错」的引用仍可通过。G4 只在有 `rule_id` 时生效；API 引擎没有 `rule_id`，G4 固定为 **skipped**（只确认存在引文），既不算通过也不算失败。「五闸全过」的统计因此要求五道闸全部 pass，skipped 不计入。
+- **规则表只覆盖商务合同**：9 条 mock 规则按付款 / 违约金 / 解除 / 管辖 / 保密 / 不可抗力 / 责任上限 / 验收 / 交付设计，遇到劳动合同等其他类型只命中个别条款（§4.7 实测 mock 1 条 vs api 12 条）。换领域要重写规则表，这不是调参能解决的；真实模型路径不受此限，但会引入拒引与不稳定。
 - **真实合同样本只有 1 份**：`examples/real/labor_contract.docx`，不足以支撑任何比率结论，只能证明「管线在没见过的文档上跑通且抓对了这些点」。
 - **种子缺陷 281/281 不能当「准确率」**：错误是程序植入的（改条号、改法名、改一个字、挪 as_of、换成无关条款、换成有上限条款、塞一个原文没有的数字、清空引用），每一类都精准对应一道闸，所以检出率接近必然。它证明的是「这五道闸的判据写对了」，不证明「能拦住真实律师会犯的错」。
 - **误报率 0/39 是自洽检查**：对照组用的是系统自身产出的 findings（本来就该全过），不是独立人工标注的正确样本。真实误报率需要另一批人工核对过的正确引用，本仓库没有。
@@ -726,8 +741,7 @@ service 链路（含容器）按 CPU 运行，容器负责 API/UI 编排与检�
 - 时间线与履约节点抽取
 - 完整金额测算（违约金/损失计算）
 - 多轮对话式追问、批量审查、权限体系
-- 真实 API 效果评测（当前无任何实测准确率/时延数据）
-- 跨路审查结果合并（法务/商务同条款去重与冲突裁决）
+- 真实 API 的**准确率**评测（当前只有 2 份示例 + 1 份劳动合同模板的单次运行指标，无律师 gold，不能算准确率）
 - GPU 容器之外的分布式推理/多卡调度
 
 ### 示例与合成数据性质

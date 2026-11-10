@@ -35,3 +35,9 @@ eval/retrieval_run*.log
 
 # GPU 构建用的本地 torch wheel（体积大，不入库）
 docker/wheels/*.whl
+
+# AI 会话笔记与本地回滚脚本（不属于工程产物）
+.workbuddy/
+
+启动.txt
+启动.bat

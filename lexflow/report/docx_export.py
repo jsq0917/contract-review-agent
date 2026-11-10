@@ -68,7 +68,7 @@ def ensure_template(path: str | Path) -> Path:
     vrow = vtable.add_row()
     vrow.cells[0].text = "{{ v.finding_id }}"
     vrow.cells[1].text = "{{ v.gate }}"
-    vrow.cells[2].text = "{{ 'PASS' if v.passed else 'FAIL' }}: {{ v.detail }}"
+    vrow.cells[2].text = "{{ v.status|upper }}: {{ v.detail }}"
     vend = vtable.add_row()
     vend.cells[0].text = "{%tr endfor %}"
     doc.save(path)
@@ -102,7 +102,13 @@ def export_docx(report: Report, template_path: str | Path, output_path: str | Pa
             }
         )
     verifications = [
-        {"finding_id": item.finding_id, "gate": item.gate, "passed": item.passed, "detail": item.detail}
+        {
+            "finding_id": item.finding_id,
+            "gate": item.gate,
+            "passed": item.passed,
+            "status": item.status,
+            "detail": item.detail,
+        }
         for item in report.verifications
     ]
     context = {

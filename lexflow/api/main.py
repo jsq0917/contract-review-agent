@@ -30,6 +30,27 @@ class ReviewRequest(BaseModel):
     comment: str = ""
 
 
+def _rerank_status(svc: AnalyzeService) -> dict[str, object]:
+    """把「配置开了」「模型在」「已加载」「跑在哪个设备」分开报。
+
+    只看一个 ``reranker_enabled`` 会把三种情况混成一种：配置开了但模型缺失、
+    模型在但还没懒加载、真的可用。getattr 兜底是因为测试会替换成只有
+    health_snapshot 的 stub 检索器。
+    """
+    reranker = getattr(svc.retriever, "reranker", None)
+    warmup = getattr(svc, "warmup_state", None) or {}
+    return {
+        "reranker_configured": svc.settings.reranker_enabled,
+        "reranker_model_found": bool(getattr(reranker, "model_present", False)),
+        "reranker_available": bool(getattr(reranker, "available", False)),
+        "reranker_device": getattr(reranker, "resolved_device", "") or None,
+        "reranker_reason": getattr(reranker, "reason", "") or None,
+        # 启动预热：running / ready / failed / skipped（关掉预热或没有模型）
+        "reranker_warmup": warmup.get("status"),
+        "reranker_warmup_s": warmup.get("seconds"),
+    }
+
+
 @app.get("/health")
 def health() -> dict[str, object]:
     svc = get_service()
@@ -44,7 +65,10 @@ def health() -> dict[str, object]:
         "vector_backend": snapshot["vector_backend"],
         "vector_reason": snapshot["vector_reason"],
         "embedding_device": snapshot["embedding_device"],
-        "reranker_enabled": svc.settings.reranker_enabled,
+        "vector_degraded": snapshot.get("degraded", False),
+        "vector_failures": snapshot.get("vector_failures", 0),
+        "next_retry_in_s": snapshot.get("next_retry_in_s"),
+        **_rerank_status(svc),
     }
 
 
@@ -54,6 +78,7 @@ async def analyze(
     stance: str = Form("甲方"),
     as_of: str | None = Form(None),
     engine: str = Form("auto"),
+    rerank: bool | None = Form(None),
 ) -> dict[str, object]:
     suffix = Path(file.filename or "").suffix
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as handle:
@@ -65,6 +90,7 @@ async def analyze(
             stance=stance,
             as_of=as_of,
             engine=engine,
+            rerank=rerank,
             require_confirmation=True,
             auto_approve=False,
         )

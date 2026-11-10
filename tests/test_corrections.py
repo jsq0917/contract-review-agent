@@ -96,6 +96,9 @@ class _StubRetriever:
     def search(self, query: str, top_k: int = 6) -> list[Any]:
         return []
 
+    def retrieve(self, query: str, top_k: int = 6, *, rerank: bool = False) -> list[Any]:
+        return []
+
 
 class _EmptyApiProvider(LLMProvider):
     engine = "api"

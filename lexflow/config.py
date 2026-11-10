@@ -95,6 +95,13 @@ class Settings:
     embedding_cache_dir: Path = field(
         default_factory=lambda: Path(os.getenv("LEXFLOW_EMBED_CACHE", ROOT / "data" / "embeddings"))
     )
+    # 向量层运行时故障的自愈策略：连续失败多少次后转终态、两次重试之间的冷却秒数。
+    embed_recover_retries: int = field(
+        default_factory=lambda: int(os.getenv("LEXFLOW_EMBED_RECOVER_RETRIES", "3"))
+    )
+    embed_recover_cooldown_s: float = field(
+        default_factory=lambda: float(os.getenv("LEXFLOW_EMBED_RECOVER_COOLDOWN_S", "30"))
+    )
     reranker_model: str = field(default_factory=_default_reranker_model)
     reranker_enabled: bool = field(default_factory=lambda: _env_bool("LEXFLOW_RERANKER_ENABLED", False))
     reranker_device: str = field(
@@ -102,6 +109,9 @@ class Settings:
             "LEXFLOW_RERANKER_DEVICE", os.getenv("LEXFLOW_DEVICE", "auto")
         )
     )
+    # 启动时在后台加载精排模型：把 20s 的加载从“首个请求”挪到“服务启动”。
+    # 默认开；显存紧张或根本不打算用精排时设 LEXFLOW_RERANKER_WARMUP=false。
+    reranker_warmup: bool = field(default_factory=lambda: _env_bool("LEXFLOW_RERANKER_WARMUP", True))
 
     def ensure_dirs(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)

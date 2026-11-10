@@ -5,40 +5,48 @@
     "chars": 795,
     "clauses": 6,
     "avg_clause_chars": 132.5,
-    "findings": 13,
-    "traceable": 13,
+    "findings": 12,
+    "traceable": 12,
     "traceability_rate": 1.0,
-    "cited": 6,
-    "citation_coverage": 0.4615,
-    "all_gates_pass": 5,
-    "all_gates_pass_rate": 0.3846,
+    "cited": 5,
+    "uncited": 7,
+    "citation_coverage": 0.4167,
+    "all_gates_pass": 0,
+    "all_gates_pass_rate": 0.0,
+    "all_gates_pass_cited": 0,
+    "gates_skipped_findings": 5,
+    "risk_points": 9,
+    "merged_both": 9,
+    "legal_only": 0,
+    "commercial_only": 0,
+    "duplicate_findings": 3,
     "gate_counts": {
       "G1": {
-        "pass": 6,
-        "total": 13
+        "pass": 5,
+        "total": 12
       },
       "G2": {
-        "pass": 6,
-        "total": 13
+        "pass": 5,
+        "total": 12
       },
       "G3": {
-        "pass": 6,
-        "total": 13
+        "pass": 5,
+        "total": 12
       },
       "G4": {
-        "pass": 6,
-        "total": 13
+        "pass": 0,
+        "total": 12
       },
       "G5": {
         "pass": 12,
-        "total": 13
+        "total": 12
       }
     },
     "llm_calls": 12,
-    "prompt_tokens": 9016,
-    "completion_tokens": 23313,
-    "cost_cny": 0.204536,
-    "elapsed_ms": 163047,
-    "retrieval_mode": "bm25-only"
+    "prompt_tokens": 8848,
+    "completion_tokens": 20058,
+    "cost_cny": 0.17815999999999999,
+    "elapsed_ms": 152969,
+    "retrieval_mode": "hybrid"
   }
 ]

@@ -19,13 +19,14 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "eval"))
 
+import metrics
 from lexflow.models import Finding
 from lexflow.parse import parse_document
 from lexflow.segment import segment_clauses
@@ -34,13 +35,7 @@ from lexflow.service import AnalyzeService
 OUT_MD = ROOT / "eval" / "contract_smoke_results.md"
 OUT_JSON = ROOT / "eval" / "contract_smoke_results.json"
 
-PUNCT_RE = re.compile(r"\s+|[，。；：、,.!?;:\"'“”‘’（）()《》【】\[\]…—\-]")
-GATES = ("G1", "G2", "G3", "G4", "G5")
 SUFFIXES = {".docx", ".pdf"}
-
-
-def normalize(text: str) -> str:
-    return PUNCT_RE.sub("", text or "")
 
 
 def collect_files(args: argparse.Namespace) -> list[Path]:
@@ -72,34 +67,27 @@ def smoke_one(service: AnalyzeService, path: Path, engine: str) -> dict:
         for item in report.get("findings", [])
     ]
 
-    traceable = 0
-    for finding in findings:
-        source = clause_text.get(finding.clause_id, "")
-        quote = normalize(finding.original_quote)
-        if quote and quote in normalize(source):
-            traceable += 1
+    findings_as_dict = [
+        finding.model_dump() for finding in findings
+    ]
+    traceable = sum(1 for finding in findings if metrics.strict_traceable(finding.model_dump(), clause_text))
 
-    cited = sum(1 for finding in findings if finding.law_name and finding.article_no)
     verifications = report.get("verifications", [])
     gate_counts = {
         gate: {
-            "pass": sum(1 for item in verifications if item["gate"] == gate and item["passed"]),
+            "pass": sum(
+                1
+                for item in verifications
+                if item["gate"] == gate and metrics.gate_status(item) == "pass"
+            ),
             "total": sum(1 for item in verifications if item["gate"] == gate),
         }
-        for gate in GATES
+        for gate in metrics.GATES
     }
-    all_pass = sum(
-        1
-        for finding in findings
-        if all(
-            item["passed"]
-            for item in verifications
-            if item["finding_id"] == finding.finding_id
-        )
-        and sum(1 for item in verifications if item["finding_id"] == finding.finding_id) == len(GATES)
-    )
+    gates = metrics.gates_summary(findings_as_dict, verifications)
+    dual = metrics.dual_review_stats(findings_as_dict)
 
-    metrics = report.get("metrics", {}) or {}
+    report_metrics = report.get("metrics", {}) or {}
     return {
         "file": str(path.relative_to(ROOT)) if path.is_relative_to(ROOT) else str(path),
         "engine": result.engine,
@@ -109,17 +97,25 @@ def smoke_one(service: AnalyzeService, path: Path, engine: str) -> dict:
         "findings": len(findings),
         "traceable": traceable,
         "traceability_rate": round(traceable / len(findings), 4) if findings else None,
-        "cited": cited,
-        "citation_coverage": round(cited / len(findings), 4) if findings else None,
-        "all_gates_pass": all_pass,
-        "all_gates_pass_rate": round(all_pass / len(findings), 4) if findings else None,
+        "cited": gates["cited"],
+        "uncited": gates["uncited"],
+        "citation_coverage": round(gates["cited"] / len(findings), 4) if findings else None,
+        "all_gates_pass": gates["all_pass"],
+        "all_gates_pass_rate": round(gates["all_pass"] / len(findings), 4) if findings else None,
+        "all_gates_pass_cited": gates["all_pass_cited"],
+        "gates_skipped_findings": gates["skipped_findings"],
+        "risk_points": dual["risk_points"],
+        "merged_both": dual["merged_both"],
+        "legal_only": dual["legal_only"],
+        "commercial_only": dual["commercial_only"],
+        "duplicate_findings": dual["duplicates"],
         "gate_counts": gate_counts,
-        "llm_calls": metrics.get("llm_calls", 0),
-        "prompt_tokens": metrics.get("prompt_tokens", 0),
-        "completion_tokens": metrics.get("completion_tokens", 0),
-        "cost_cny": metrics.get("cost_estimate_cny"),
-        "elapsed_ms": metrics.get("node_latency_ms_total", 0),
-        "retrieval_mode": metrics.get("retrieval_mode", ""),
+        "llm_calls": report_metrics.get("llm_calls", 0),
+        "prompt_tokens": report_metrics.get("prompt_tokens", 0),
+        "completion_tokens": report_metrics.get("completion_tokens", 0),
+        "cost_cny": report_metrics.get("cost_estimate_cny"),
+        "elapsed_ms": report_metrics.get("node_latency_ms_total", 0),
+        "retrieval_mode": report_metrics.get("retrieval_mode", ""),
     }
 
 
@@ -145,26 +141,29 @@ def main() -> int:
         f"> 引擎 {args.engine}｜样本 {len(rows)} 份｜只描述本次运行，不代表法律质量。",
         "> 溯源率按「引文是条款正文子串」严格判定；引用覆盖率低是模型主动拒引，见 README §4.6。",
         "",
-        "| 合同 | 字符 | 条款 | findings | 溯源率 | 引用覆盖 | 五闸全过 | tokens(in/out) | 成本 | 耗时ms |",
-        "|---|---:|---:|---:|---:|---:|---:|---|---:|---:|",
+        "| 合同 | 字符 | 条款 | findings | 严格溯源率 | 引用/未引用 | 五闸全过 | 双路：风险点/共同/法务独有/商务独有 | tokens(in/out) | 成本 | 耗时ms |",
+        "|---|---:|---:|---:|---:|---|---:|---|---|---:|---:|",
     ]
     for item in rows:
         trace = f"{item['traceable']}/{item['findings']} ({item['traceability_rate']})" if item["findings"] else "—"
-        cover = f"{item['cited']}/{item['findings']} ({item['citation_coverage']})" if item["findings"] else "—"
+        cover = f"{item['cited']}/{item['uncited']}" if item["findings"] else "—"
         gates = f"{item['all_gates_pass']}/{item['findings']}" if item["findings"] else "—"
+        dual = f"{item['risk_points']}/{item['merged_both']}/{item['legal_only']}/{item['commercial_only']}"
         cost = "0" if item["cost_cny"] in (None, 0) else f"¥{item['cost_cny']:.4f}"
         lines.append(
             f"| {Path(item['file']).name} | {item['chars']} | {item['clauses']} | {item['findings']} | "
-            f"{trace} | {cover} | {gates} | {item['prompt_tokens']}/{item['completion_tokens']} | "
+            f"{trace} | {cover} | {gates} | {dual} | {item['prompt_tokens']}/{item['completion_tokens']} | "
             f"{cost} | {item['elapsed_ms']} |"
         )
 
+    lines += ["", "> 五闸全过要求五道闸都是 pass，skipped 不算通过；API 引擎的 G4 固定为 skipped（不校验法条适用性）。", ""]
     lines += ["", "## 分闸门通过数", ""]
     for item in rows:
         detail = "；".join(
-            f"{gate} {item['gate_counts'][gate]['pass']}/{item['gate_counts'][gate]['total']}" for gate in GATES
+            f"{gate} {item['gate_counts'][gate]['pass']}/{item['gate_counts'][gate]['total']}"
+            for gate in metrics.GATES
         )
-        lines.append(f"- {Path(item['file']).name}: {detail}")
+        lines.append(f"- {Path(item['file']).name}: {detail}（含 skipped 的 finding {item['gates_skipped_findings']} 条）")
 
     OUT_MD.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(OUT_MD.read_text(encoding="utf-8"))

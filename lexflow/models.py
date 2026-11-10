@@ -5,10 +5,11 @@ from __future__ import annotations
 from datetime import date
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 RiskLevel = Literal["high", "medium", "low"]
 GateName = Literal["G1", "G2", "G3", "G4", "G5"]
+VerificationStatus = Literal["pass", "fail", "skipped"]
 
 
 class BBox(BaseModel):
@@ -94,10 +95,27 @@ class Finding(BaseModel):
 
 
 class Verification(BaseModel):
+    """单条核验结果。
+
+    ``status`` 是三态：pass / fail / skipped。skipped 表示这条闸在当前输入下
+    **无法判定**（例如 API 引擎没有 rule_id，G4 不能校验法条适用性）。
+    ``passed`` 保留给旧产物与数据库列，恒等于 ``status == "pass"``；
+    skipped 既不算通过，也不能算失败。
+    """
+
     finding_id: str
     gate: GateName
     passed: bool
+    status: VerificationStatus = "pass"
     detail: str
+
+    @model_validator(mode="after")
+    def _sync_passed(self) -> "Verification":
+        if self.status == "pass" and not self.passed:
+            self.status = "fail"
+        elif self.status != "pass" and self.passed:
+            self.passed = False
+        return self
 
 
 class HumanDecision(BaseModel):

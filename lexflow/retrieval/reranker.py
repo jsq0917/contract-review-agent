@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 
 from lexflow.devices import resolve_device
@@ -19,14 +20,36 @@ class LocalReranker:
         self._model = None
         self.reason = ""
         self.resolved_device = ""
+        # 启动预热线程和请求线程可能同时进来：没有这把锁会加载两份模型，
+        # GPU 上等于凭空多占 2 GB 显存。
+        self._load_lock = threading.Lock()
 
     @property
     def available(self) -> bool:
         return self._model is not None
 
+    @property
+    def model_present(self) -> bool:
+        """模型是否**可解析**，不加载权重。
+
+        ``/health`` 靠它回答“能不能开精排”，而不必付一次 15s 的加载代价。
+        非本地路径（HF 仓库名）按“可解析”处理，真实可用性要等 ``load()``。
+        """
+        if not self.model_name:
+            return False
+        path = Path(self.model_name)
+        return path.is_dir() or not path.is_absolute()
+
     def load(self) -> None:
+        """幂等 + 线程安全：并发调用只真正加载一次，其余等待后直接返回。"""
         if self._model is not None:
             return
+        with self._load_lock:
+            if self._model is not None:
+                return
+            self._load_locked()
+
+    def _load_locked(self) -> None:
         if not self.enabled:
             self.reason = "reranker 未启用"
             return

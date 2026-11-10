@@ -99,7 +99,7 @@
 - 交付物：
   - `lexflow/synthetic.py`：可复现生成器（固定种子、模板、风险注入、文本哈希）
   - `scripts/gen_synthetic_contracts.py`：生成 12 份合成 docx + `data/synthetic/gold.jsonl` + `manifest.json`
-  - `eval/run_synthetic_eval.py`：条款级 recall/precision、溯源率、分闸门计数、耗时、docx 行数/DB 条数
+  - `eval/run_synthetic_eval.py`：条款级 recall/precision、严格溯源率、分闸门计数、双路互补、耗时、docx 行数/DB 条数
   - `tests/test_synthetic.py`：复现性、gold 与合同一一对应、注入条号存在、端到端
 - 机械验收：
   1. `uv run pytest -q` 全绿；

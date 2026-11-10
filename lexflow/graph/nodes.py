@@ -92,6 +92,7 @@ def _review_node(
         failure_log=failure_log,
         stance=state.get("stance", "甲方"),
         top_k=top_k,
+        rerank=bool(state.get("rerank", False)),
     )
     latency = _ms(start)
     log_event(
@@ -118,6 +119,7 @@ def _review_node(
 def bind_evidence_node(state: dict[str, Any], retriever: Any) -> dict[str, Any]:
     start = time.perf_counter()
     clauses = {item["clause_id"]: Clause(**item) for item in state.get("clauses", [])}
+    rerank = bool(state.get("rerank", False))
     updated: list[Finding] = []
     ledger: dict[str, Evidence] = {}
     warnings: list[str] = []
@@ -130,7 +132,7 @@ def bind_evidence_node(state: dict[str, Any], retriever: Any) -> dict[str, Any]:
             updated.append(finding)
             continue
         query = f"{clause.text[:500]} {finding.issue}"
-        hits = retriever.search(query, top_k=6)
+        hits = retriever.retrieve(query, 6, rerank=rerank)
         selected = None
         if finding.law_name and finding.article_no:
             selected = next(

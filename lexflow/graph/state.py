@@ -6,13 +6,14 @@ import operator
 from typing import Annotated, Any, TypedDict
 
 from lexflow.models import Evidence, Finding, Verification
+from lexflow.verify.gates import normalize_quote
 
 
 def merge_findings(left: list[Finding] | None, right: list[Finding] | None) -> list[Finding]:
     """两道 reducer：
 
     1. 按 ``finding_id`` 去重（同一分支重复写入、节点回写自身结果时幂等）；
-    2. 再按 ``(clause_id, risk_type)`` 合并跨路重复发现。
+    2. 再按 ``(clause_id, risk_type, 引文)`` 合并跨路重复发现（引文不同不合并）。
 
     第 2 步必须放在 reducer 里而不是放到某个节点里：节点返回的是「合并后的完整列表」，
     但 reducer 只做并集，没被覆盖到的旧条目（另一路的原始 finding_id）会被 union 回来，
@@ -30,72 +31,117 @@ def merge_findings(left: list[Finding] | None, right: list[Finding] | None) -> l
 _RISK_ORDER = {"high": 0, "medium": 1, "low": 2}
 
 
-def merge_duplicate_findings(findings: list[Finding]) -> list[Finding]:
-    """跨法务/商务合并同一 (clause_id, risk_type) 的发现，保留两路来源与文本。
+def _quotes_related(left: str, right: str) -> bool:
+    """两段引文是否指向同一句话：归一化后互相包含，或完全相同。"""
+    a, b = normalize_quote(left), normalize_quote(right)
+    if not a or not b:
+        return False
+    return a in b or b in a
 
-    ``risk_type`` 为空或 ``other`` 的不合并——没有可靠的类型键时强行合并会把
-    两个不同问题压成一条。这条边界是刻意的，不是遗漏。
+
+def _union_reviewers(items: list[Finding]) -> list[str]:
+    reviewers: list[str] = []
+    for item in items:
+        for name in item.reviewers or [item.reviewer]:
+            if name not in reviewers:
+                reviewers.append(name)
+    return reviewers
+
+
+def _merge_cluster(items: list[Finding]) -> Finding:
+    """合并同一句话上的多条发现。
+
+    前提是它们的 ``original_quote`` 互相包含（由调用方保证），所以只保留
+    一份引文不会把两个不同风险拼成一条。
     """
-    groups: dict[tuple[str, str], list[Finding]] = {}
-    kept: list[Finding] = []
+    ordered = sorted(
+        items,
+        key=lambda item: (
+            _RISK_ORDER.get(item.risk_level, 9),
+            0 if item.reviewer == "legal" else 1,
+        ),
+    )
+    primary = ordered[0]
+    reviewers = _union_reviewers(ordered)
+    issues = {item.issue.strip() for item in ordered if item.issue.strip()}
+    suggestions = {item.suggestion.strip() for item in ordered if item.suggestion.strip()}
+    if len(issues) == 1:
+        issue = primary.issue
+    else:
+        issue = "；".join(
+            f"[{'法务' if item.reviewer == 'legal' else '商务'}] {item.issue.strip()}"
+            for item in ordered
+        )
+    if len(suggestions) == 1:
+        suggestion = primary.suggestion
+    else:
+        suggestion = "；".join(
+            f"[{'法务' if item.reviewer == 'legal' else '商务'}] {item.suggestion.strip()}"
+            for item in ordered
+        )
+    update: dict[str, Any] = {"reviewers": reviewers, "issue": issue, "suggestion": suggestion}
+    if not primary.law_name:
+        cited = next((item for item in ordered if item.law_name and item.article_no), None)
+        if cited is not None:
+            update.update(
+                {
+                    "law_name": cited.law_name,
+                    "article_no": cited.article_no,
+                    "cited_quote": cited.cited_quote,
+                    "citation_reason": None,
+                }
+            )
+    if not primary.rule_id:
+        rule = next((item.rule_id for item in ordered if item.rule_id), None)
+        if rule:
+            update["rule_id"] = rule
+    return primary.model_copy(update=update)
+
+
+def merge_duplicate_findings(findings: list[Finding]) -> list[Finding]:
+    """跨法务/商务合并同一句话上的发现，保留两路来源与文本。
+
+    合并键是 ``(clause_id, risk_type, 引文)``，而不是只按 ``(clause_id, risk_type)``：
+    同一条款可能同时写了工伤、婚育等两个子风险（risk_type 都是 termination），
+    只按类型合并会把两段 issue 拼到一份引文上，产生「引文只支撑一半结论」的
+    嵌合体。这里要求两条发现的原引文互相包含才合并。
+
+    ``risk_type`` 为空或 ``other`` 时不做跨路合并；只有在引文与 issue 都归一化
+    相同（即完全重复）时才去重，避免丢掉另一路的来源标记。
+    """
+    buckets: dict[tuple[str, str, str], list[Finding]] = {}
     for finding in findings:
         risk_type = (finding.risk_type or "").strip()
         if not risk_type or risk_type == "other":
-            kept.append(finding)
-            continue
-        groups.setdefault((finding.clause_id, risk_type), []).append(finding)
+            key = (
+                finding.clause_id,
+                "other",
+                f"{normalize_quote(finding.original_quote)}\x00{normalize_quote(finding.issue)}",
+            )
+        else:
+            key = (finding.clause_id, risk_type, "")
+        buckets.setdefault(key, []).append(finding)
 
-    merged = list(kept)
-    for items in groups.values():
-        if len(items) == 1:
-            merged.append(items[0])
-            continue
-        ordered = sorted(
-            items,
-            key=lambda item: (
-                _RISK_ORDER.get(item.risk_level, 9),
-                0 if item.reviewer == "legal" else 1,
-            ),
-        )
-        primary = ordered[0]
-        reviewers: list[str] = []
-        for item in ordered:
-            for name in item.reviewers or [item.reviewer]:
-                if name not in reviewers:
-                    reviewers.append(name)
-        issues = {item.issue.strip() for item in ordered if item.issue.strip()}
-        suggestions = {item.suggestion.strip() for item in ordered if item.suggestion.strip()}
-        if len(issues) == 1:
-            issue = primary.issue
-        else:
-            issue = "；".join(
-                f"[{'法务' if item.reviewer == 'legal' else '商务'}] {item.issue.strip()}"
-                for item in ordered
-            )
-        if len(suggestions) == 1:
-            suggestion = primary.suggestion
-        else:
-            suggestion = "；".join(
-                f"[{'法务' if item.reviewer == 'legal' else '商务'}] {item.suggestion.strip()}"
-                for item in ordered
-            )
-        update: dict[str, Any] = {"reviewers": reviewers, "issue": issue, "suggestion": suggestion}
-        if not primary.law_name:
-            cited = next((item for item in ordered if item.law_name and item.article_no), None)
-            if cited is not None:
-                update.update(
-                    {
-                        "law_name": cited.law_name,
-                        "article_no": cited.article_no,
-                        "cited_quote": cited.cited_quote,
-                        "citation_reason": None,
-                    }
+    merged: list[Finding] = []
+    for key, items in buckets.items():
+        if key[1] == "other":
+            if len(items) == 1:
+                merged.append(items[0])
+            else:
+                merged.append(
+                    items[0].model_copy(update={"reviewers": _union_reviewers(items)})
                 )
-        if not primary.rule_id:
-            rule = next((item.rule_id for item in ordered if item.rule_id), None)
-            if rule:
-                update["rule_id"] = rule
-        merged.append(primary.model_copy(update=update))
+            continue
+        clusters: list[list[Finding]] = []
+        for item in items:
+            for cluster in clusters:
+                if _quotes_related(item.original_quote, cluster[0].original_quote):
+                    cluster.append(item)
+                    break
+            else:
+                clusters.append([item])
+        for cluster in clusters:
+            merged.append(cluster[0] if len(cluster) == 1 else _merge_cluster(cluster))
     return merged
 
 
@@ -147,6 +193,9 @@ class ReviewState(TypedDict, total=False):
     engine_requested: str
     require_confirmation: bool
     auto_approve: bool
+    # 本次审查是否使用精排。写进 state 而不是读全局设置：同一进程可能并发跑不同请求，
+    # 且中断恢复后要求这次审查的参数仍然可追溯。
+    rerank: bool
 
     parsed: dict[str, Any]
     clauses: list[dict[str, Any]]
