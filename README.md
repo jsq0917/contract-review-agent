@@ -1,4 +1,4 @@
-# lexflow M0：合同审查最小闭环
+# 合同审查智能体：LangGraph 流水线 · 条款级风险 · 原文溯源
 
 一个可运行的合同审查多智能体最小工程（M0）。主推理可走 OpenAI 兼容 API（DeepSeek/Qwen 均可），**没有 API key 时整条链路用确定性 mock 跑通**，所有产物显式标注 `engine=mock`。
 
