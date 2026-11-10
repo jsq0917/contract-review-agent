@@ -79,14 +79,19 @@ uv run lexflow-api                     # http://127.0.0.1:8000/docs
 uv run streamlit run lexflow/ui/app.py # http://127.0.0.1:8501
 ```
 
-接口：
+接口（`POST /analyze` 为任务化接口：立即返回 task_id，审查在后台线程执行）：
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/health` | 引擎默认值、语料模式、法条数、检索模式（可能为 `indexing`）、`vector_ready`、向量后端/原因、embedding 设备；精排五项：`reranker_configured`（配置默认开）/ `reranker_model_found`（模型路径可解析，不加载权重）/ `reranker_available`（已加载可用）/ `reranker_device` 与 `reranker_reason`，外加启动预热状态 `reranker_warmup`（`running`/`ready`/`failed`/`skipped`）与 `reranker_warmup_s` |
-| POST | `/analyze` | 上传 PDF/docx，返回 `matter_id` 与风险清单（停在确认点）。可选表单字段 `rerank=true/false`，省略则取 `LEXFLOW_RERANKER_ENABLED` |
-| POST | `/review/{matter_id}` | 单人确认，恢复 `interrupt()` 并导出 docx |
-| GET | `/export/{matter_id}` | 下载 docx |
+| GET | `/health` | 引擎默认值、语料模式、法条数、检索模式（可能为 `indexing`）、`vector_ready`、向量后端/原因、embedding 设备；精排五项：`reranker_configured`（配置默认开）/ `reranker_model_found`（模型路径可解析，不加载权重）/ `reranker_available`（已加载可用）/ `reranker_device` 与 `reranker_reason`，外加启动预热状态 `reranker_warmup`（`running`/`ready`/`failed`/`skipped`）与 `reranker_warmup_s`。长任务运行期间该接口不被阻塞 |
+| POST | `/analyze` | 上传 PDF/docx（白名单 + 大小上限 + 非空），**立即**返回 `task_id`/`matter_id`/`status=queued`/`token`（HTTP 202）。可选表单字段 `rerank=true/false`，省略则取 `LEXFLOW_RERANKER_ENABLED`；可选请求头 `Idempotency-Key`，同一键重复提交复用同一任务（HTTP 200 + `idempotent_replay=true`） |
+| GET | `/tasks/{task_id}` | 任务状态：`queued`/`running`/`cancelling`/`awaiting_review`/`completed`/`rejected`/`failed`/`cancelled`/`interrupted`，含 `progress`（trace 中已完成的节点）、`error`（脱敏后的失败原因）与完成后的 `result`。需要 `X-Matter-Token` |
+| POST | `/tasks/{task_id}/cancel` | 取消排队中/运行中的任务；取消后 matter 不再允许 review/export。协作式取消：只在任务开始前与图返回后生效，不强行中断正在执行的 LLM 调用 |
+| POST | `/tasks/{task_id}/retry` | 只对 `failed`/`cancelled`/`interrupted` 任务生效，默认最多重试 1 次；达到上限返回 409 |
+| POST | `/review/{matter_id}` | 单人确认，恢复 `interrupt()` 并导出 docx；已完成的 matter 重复 review 直接回放结果，不重复调用模型。需要 `X-Matter-Token` |
+| GET | `/export/{matter_id}` | 下载 docx；需要 `X-Matter-Token`，浏览器下载可用 `?token=`。matter 已取消时返回 409 |
+
+错误统一为 `{"error": {"code", "message"}}`，不返回堆栈、密钥或服务器绝对路径。默认 `LEXFLOW_API_REQUIRE_TOKEN=true`：`/review`、`/export`、`/tasks/*` 都要带 analyze 返回的 token，用来隔离他人 matter；单机无用户体系，token 即归属凭证。
 
 Streamlit UI 为单页演示：上传合同 → 选立场/as_of/engine（默认 `mock`，零成本）→ 审查 → 风险表（按风险等级排序，含规则 ID、法条依据、**五闸状态、引用原文**、定位锚）→ 核验详情（G1–G5 逐条说明）→ 人工确认/驳回 → 下载 docx，并展示本次 LLM 调用次数、tokens、节点耗时与端到端耗时。`engine=mock` 时页面顶部显示红色横幅，明确这是固定规则演示、不是真实模型效果；后端未启动时页面给出明确提示而不是抛异常。`skipped` 显示为「未判定」：API 引擎的 G4 只确认存在引文，不校验法条适用性，不计入「五闸全过」。
 
@@ -105,13 +110,23 @@ Streamlit UI 为单页演示：上传合同 → 选立场/as_of/engine（默认 
 ### 1.5 测试与评测
 
 ```powershell
-uv run pytest -q
+# 离线回归（CI 同款）：不调用真实 LLM、不读付费 Key、不下载大模型
+uv run python -m compileall -q lexflow eval tests scripts
+uv run pytest -q -m "not live"
+
+# live 分层：只有显式开启且有 Key 才跑，结果单独记录，不与离线通过率混写
+$env:LEXFLOW_LIVE_API = "1"; uv run pytest -q -m live
+
 uv run python scripts/build_corpus.py          # 重建 1465 条统一语料（幂等）
 uv run python eval/run_eval.py
 uv run python scripts/gen_synthetic_contracts.py
 uv run python eval/run_synthetic_eval.py
 uv run python eval/run_retrieval_eval.py       # 三档检索评测（dense / hybrid / hybrid+rerank）
+uv run python eval/run_protocol_eval.py        # 独立评测协议：dev/test 分集、分指标、自审标注单列
+uv run python eval/run_dual_eval.py            # 单路/双路对照 + 独有贡献 CSV
 ```
+
+CI 见 [.github/workflows/ci.yml](.github/workflows/ci.yml)：`offline` job 执行 `uv sync --frozen` + `compileall` + `pytest -m "not live"`；`docker` job 单独执行镜像构建。工具调用、HITL、G4/G5 三态、严格溯源与 reducer 反向用例都在离线回归里；live API、Docker、GPU 属于独立命令与独立报告。
 
 ### 1.6 mock 与真实 API 的区别
 
@@ -152,6 +167,20 @@ uv run python eval/run_retrieval_eval.py       # 三档检索评测（dense / hy
 | `LEXFLOW_FAILURES` | `data/failures.jsonl` | 失败归档路径 |
 | `LEXFLOW_API_URL` | `http://127.0.0.1:8000` | Streamlit 访问的 API 地址 |
 | `LEXFLOW_LOG_LEVEL` | `INFO` | JSON 行日志级别；demo 默认压到 `ERROR`，可 `--show-logs` 恢复 |
+| `LEXFLOW_FALLBACK_MODELS` | 空 | 备用模型列表（逗号分隔）；主模型重试耗尽后按顺序切换 |
+| `LEXFLOW_FALLBACK_API_KEY` | 空 | 备用 API Key，只在鉴权/额度类失败时换密钥重试 |
+| `LEXFLOW_LLM_CONNECT_TIMEOUT_S` / `LEXFLOW_LLM_READ_TIMEOUT_S` | `10` / `120` | 连接与读取超时（秒） |
+| `LEXFLOW_LLM_TOTAL_DEADLINE_S` | `180` | 单次调用总 Deadline；到点抛 `timeout`，不再继续重试 |
+| `LEXFLOW_LLM_MAX_RETRIES` | `2` | 仅对 retriable 错误（429/5xx/超时/坏 JSON）做指数退避重试；401/400 不重试 |
+| `LEXFLOW_LLM_MAX_CONCURRENCY` | `4` | 单进程内并发调用上限（信号量） |
+| `LEXFLOW_RESOLVE_CITATIONS` | `true` | 是否对未引用 finding 走 Function Call + MCP 补证 |
+| `LEXFLOW_RESOLVE_MAX_ROUNDS` / `LEXFLOW_RESOLVE_MAX_TOOL_STEPS` | `2` / `4` | 补证最多两轮模型调用、四步工具调用 |
+| `LEXFLOW_RESOLVE_MAX_FINDINGS` | `8` | 单次审查最多补证多少条 finding，超出部分如实记为 `skipped_budget` |
+| `LEXFLOW_MCP_ENABLED` / `LEXFLOW_MCP_TIMEOUT_S` | `true` / `20` | 是否用真实 MCP 子进程暴露工具；启动失败时降级到进程内本地工具运行时 |
+| `LEXFLOW_MAX_UPLOAD_BYTES` | `10485760` | 上传大小上限（默认 10 MiB） |
+| `LEXFLOW_ALLOWED_EXTENSIONS` | `.pdf,.docx,.png,.jpg,.jpeg` | 允许的扩展名白名单 |
+| `LEXFLOW_API_REQUIRE_TOKEN` | `true` | 是否要求 matter token；单机演示可设为 `false` |
+| `LEXFLOW_TASK_WORKERS` / `LEXFLOW_TASK_MAX_RETRIES` | `2` / `1` | 后台任务线程数与单任务最大重试次数 |
 
 项目根目录的 `.env` 会自动加载（已存在的系统环境变量优先，不会被覆盖；Docker Compose 也会读取同一文件做变量替换）。可直接复制 [.env.example](.env.example) 后填 key。`.env` 已在 `.gitignore` 与 `.dockerignore` 中排除，不会提交或打进镜像。
 
@@ -182,19 +211,21 @@ uv run python -m lexflow.cli analyze examples/sample_service_contract.docx --eng
 ```
 START → parse → segment_clauses → ┬ review_legal
                                   └ review_commercial   （并行）
-      → bind_evidence → verify → assemble_report → export_docx → END
+      → resolve_citations → bind_evidence → verify → assemble_report → export_docx → END
                                 export_docx 内 interrupt() 单人确认
 ```
 
 - checkpointer：`SqliteSaver`，与业务表**同一个 SQLite 文件、不同表**；中断后换进程仍可按 `matter_id` 恢复。
 - 证据 reducer 按 `law_name#article_no` 去重，保留更高分；findings 按 `finding_id` 去重。
 - `assemble_report` / `export_docx` 的耗能在图返回后由 service 写回，避免中断恢复后 metrics 缺尾节点。
+- `resolve_citations` 只处理 `law_name/article_no` 为空的 finding，函数调用最多两轮、工具步数最多四步；它只补法条字段，**不设置 `rule_id`**，因此 G4 不会因补证成功自动变成 pass。
 
 ### 2.2 目录结构
 
 ```
 lexflow/
 ├── pyproject.toml / uv.lock
+├── .github/workflows/ci.yml      # offline（pytest -m "not live"）+ docker build 两个 job
 ├── Dockerfile                   # 依赖 + 代码 + 模板；不含模型与数据
 ├── docker-compose.yml           # api + ui；./data、./artifacts、../模型 挂载
 ├── docker-compose.gpu.yml       # 可选 GPU 覆盖层（gpus: all + cu130 build arg）
@@ -227,26 +258,32 @@ lexflow/
 │   ├── run_eval.py              # 示例合同评测
 │   ├── run_synthetic_eval.py    # 合成数据集评测（条款级 recall/precision）
 │   ├── run_retrieval_eval.py    # 三档检索评测（对齐/剔除 + Recall@5/10）
+│   ├── run_protocol_eval.py     # 独立评测协议：dev/test 分集、分指标、自审标注单列
+│   ├── run_dual_eval.py         # 单路/双路对照 + 独有贡献 CSV
+│   ├── public_templates/manifest.json # 公开模板分集清单（label_source=self_review）
 │   └── results.* / synthetic_results.* / retrieval_results.* # 运行后生成
 ├── lexflow/
 │   ├── config.py                # Settings（环境变量、模型目录）
 │   ├── devices.py               # 统一 device 解析（cuda→cpu）
-│   ├── logging.py               # JSON 行日志
+│   ├── logging.py               # JSON 行日志（含 trace_id contextvar；MCP 模式写 stderr）
+│   ├── trace.py                 # 请求级 JSONL trace（脱敏、截断、线程安全）
 │   ├── models.py                # Pydantic 模型
 │   ├── corpus_build.py          # 1465 条语料构建 + 康熙部首归一化
 │   ├── service.py               # CLI/API/UI/eval 共用服务层
 │   ├── synthetic.py             # 合成合同生成器（固定种子 + 风险注入）
 │   ├── cli.py
-│   ├── api/main.py              # FastAPI（service 延迟创建，测试可注入临时目录）
-│   ├── ui/app.py                # Streamlit 单页
+│   ├── api/main.py              # FastAPI（任务化 /analyze、/tasks、上传边界、matter token）
+│   ├── api/tasks.py             # 单机任务管理（线程池 + SQLite 任务表 + 取消/重试/幂等）
+│   ├── ui/app.py                # Streamlit 单页（轮询任务状态）
 │   ├── parse/                   # PyMuPDF / pdfplumber / python-docx / 可选 OCR
 │   ├── segment/segmenter.py     # 条款切分 + 类型判定（含 char/page/bbox）
 │   ├── retrieval/               # corpus / bm25 / embedder / reranker / hybrid
-│   ├── llm/                     # base / mock / openai_compat / factory
+│   ├── llm/                     # base / errors / mock / openai_compat / factory（超时/重试/降级）
+│   ├── tools/                   # Function Call 工具声明、本地/ MCP 运行时、JSON-RPC 服务端
 │   ├── review/reviewer.py       # 法务 ‖ 商务双路审查
 │   ├── verify/gates.py          # G1–G5 纯函数
-│   ├── storage/db.py            # SQLite 业务表
-│   ├── graph/                   # state / nodes / build（LangGraph 主图）
+│   ├── storage/db.py            # SQLite 业务表 + tasks 表
+│   ├── graph/                   # state / nodes / resolve / build（LangGraph 主图）
 │   └── report/docx_export.py    # docxtpl 导出
 └── tests/
     ├── conftest.py
@@ -254,7 +291,13 @@ lexflow/
     ├── test_state_reducer.py    # 证据去重 reducer
     ├── test_gates.py            # 伪造条号 / 篡改引文 / 过期条文
     ├── test_e2e_mock.py         # mock 端到端、docx 行数 = DB findings、interrupt/resume
-    ├── test_api.py              # /health 状态流转、/analyze、/review、/export、API 层 resume
+    ├── test_api.py              # /health 状态流转、任务化 /analyze、/review、/export、API 层 resume
+    ├── test_api_tasks.py        # 任务状态、取消、有限重试、幂等键、/health 不被长任务阻塞
+    ├── test_api_boundaries.py   # 扩展名/大小/空文件、路径穿越、token、错误脱敏、临时文件清理
+    ├── test_citation_resolution.py # MCP 真实子进程、伪造引文拒引、步数/轮次上限
+    ├── test_provider_governance.py # 429/401/400/500、总 Deadline、fallback、坏 JSON
+    ├── test_trace.py            # 事件完整、trace_id 一致、脱敏与截断
+    ├── test_live_api.py         # live 分层，默认跳过
     ├── test_synthetic.py        # 合成数据可复现、gold 一一对应、端到端
     └── test_corpus.py           # 1465/1260/107/98、哈希、归一化、幂等、降级
 ```
@@ -321,6 +364,26 @@ lexflow/
 
 - 若外部文件缺失，`lexflow/retrieval/corpus.py` 的内置 `FALLBACK_ARTICLES` 仅含 5 条样例法条；此时 `/health` 的 `corpus_mode` 为 `fallback`，**该样例集不是完整法律库**。
 
+### 2.8 请求级 Trace
+
+- 每次 analyze/review 生成 `trace-<matter_id>`，落盘 `artifacts/<matter_id>/trace.jsonl`，一行一个事件；报告 metrics 与 API 响应都带同一个 `trace_id`。
+- 事件覆盖 `request.start`、各节点 `node.end`、每次模型调用 `llm.call`、工具调用 `tool.call`、补证结论 `citation.resolve`、人工确认 `hitl.decision`、`request.end`/`request.failed`。
+- 字段包含模型、Prompt 版本（`review-v3`）、语料版本（法条文件 SHA256 前 12 位）、耗时、token、成本、重试次数与降级原因。
+- 写入前统一脱敏：键名含 key/secret/authorization/token 的字段替换为 `***`，`sk-` 串打码，长文本截断到 300 字符并记录原长度；不落完整合同正文。
+- 任务进度直接读 trace：`GET /tasks/{id}` 的 `progress.nodes_done` 就是已完成节点列表，不需要额外的进度表。
+
+### 2.9 引用补证（Function Call + MCP）
+
+- 节点位置：两路审查合并后、绑定证据前，只处理缺 `law_name/article_no` 的 finding。
+- 工具（唯一声明源 `lexflow/tools/definitions.py`，Pydantic Schema + 白名单）：
+  - `search_statutes(query, top_k)`：检索候选法条；
+  - `get_article(law_name, article_no)`：读取指定法条原文，条号不存在返回 `article_not_found`；
+  - `get_clause_context(clause_id)`：读取条款及上下文。
+- 两种运行时：默认启动真实 MCP 子进程（`lexflow/tools/mcp_server.py`，手写 JSON-RPC 2.0 over stdio，不新增依赖）；启动失败时降级为进程内本地运行时并记录原因。无 API Key / mock 引擎同样走确定性工具流程。
+- 严格校验：模型只能引用语料中真实存在的条号；`cited_quote` 归一化后必须是该法条原文的连续子串，否则拒引（`refused`）；补证不写 `rule_id`，G4 不会因此变 pass；导出仍必须经过人工确认。
+- 上限：最多 2 轮模型调用、4 步工具调用、单次审查最多补证 8 条 finding（超出如实记 `skipped_budget`）。
+- 启动 MCP 服务：`uv run python -m lexflow.tools.mcp_server --corpus data/corpus/law_articles.jsonl --clauses artifacts/<matter_id>/clauses.json`。
+
 ---
 
 ## 3. 规则表
@@ -377,13 +440,20 @@ mock 的风险判定是显式规则表（代码同源：`lexflow/review/rules.py
 
 以下均为**本机实际运行测得**，仅代表这一次运行；每条都给出可复跑命令。
 
-> **口径变更（2026-11-10）**：跨路合并键从 `(clause_id, risk_type)` 收紧为 `(clause_id, risk_type, 引文)`——同一条款里的两句话不会再被拼成一条「嵌合体」。同日核验闸改为三态（pass / fail / skipped）：API 引擎没有 `rule_id` 时 G4 记 **skipped**，不再算通过；G5 的换算值也记 skipped。下表已按新口径重跑（2026-11-10）。
+> **口径总则（适用于本章及对外材料）**
+> 1. 五道核验闸 G1–G5 都是**纯规则/文本判定**，不调用任何模型。
+> 2. 每道闸输出三态 `pass / fail / skipped`；**`skipped` 既不算通过也不算失败**，「五闸全过」只统计五道全 `pass`。
+> 3. API 引擎没有 `rule_id`，G4 固定为 `skipped`（只确认存在引文，不校验法条适用性），不得计入通过。
+> 4. `examples/real/labor_contract.docx` 是**公开劳动合同模板，不是签署合同**；它只用于「管线在没见过的文档上是否退化」的冒烟，不支撑准确率。
+> 5. **原始 findings 与去重风险点分开报**：findings 是两路原始输出，`risk_points = merged_both + legal_only + commercial_only` 才是去重后的风险点。
+>
+> **口径变更（2026-11-10）**：跨路合并键从 `(clause_id, risk_type)` 收紧为 `(clause_id, risk_type, 引文)`——同一条款里的两句话不会再被拼成一条「嵌合体」。同日核验闸改为三态：API 引擎没有 `rule_id` 时 G4 记 **skipped**，不再算通过；G5 的换算值也记 skipped。下表已按新口径重跑（2026-11-10）。
 
 ### 4.1 最终回归数字表
 
 | 项目 | 实测结果 | 命令 / 来源 | 性质 |
 |---|---|---|---|
-| 单元/集成测试 | `106 passed, 1 warning` | `uv run pytest -q`（2026-11-10 复核） | 真实执行 |
+| 单元/集成测试 | `142 passed, 1 deselected, 1 warning` | `uv run pytest -q -m "not live"`（2026-11-11 复核；`live` 1 条默认跳过） | 真实执行 |
 | 离线演示（热缓存） | `matter-9b25b21a2b`；8 findings（合并前口径）；分析 17835 ms + 确认/导出 70 ms；docx 38564 B；节点合计 1677 ms；`hybrid/cuda`；`llm_calls=14`、tokens 0/0 | `uv run python scripts/demo.py` | mock + 合成示例 |
 | 离线演示（空数据目录、空向量缓存） | `matter-66e706190c`；8 findings（合并前口径）；分析 34670 ms（含首次索引）；确认/导出正常 | 设 `LEXFLOW_DATA_DIR/ARTIFACTS_DIR/DB/EMBED_CACHE` 到全新临时目录后跑 demo | mock + 冷启动 |
 | 示例 DOCX 评测 | 条款 7/7、风险召回 **4/4**、findings **4**、溯源 4/4、五闸全过 4/4；`bm25-only` | `uv run python eval/run_eval.py` | mock + 自造样本 |
@@ -441,7 +511,7 @@ mock 的风险判定是显式规则表（代码同源：`lexflow/review/rules.py
 
 1. 无 API key、全程离线，一条命令跑完「上传 → 分析 → 风险表 → 确认 → docx → 指标」：`scripts/demo.py`，真实输出见 [docs/DEMO.md](docs/DEMO.md)。
 2. 跨进程恢复：`hitl_demo.py start` 停在 `awaiting_review`，新进程 `resume` 从 SQLite checkpoint 完成导出（pid 83656 → 84840，docx 38740 B）。
-3. 测试全绿：`uv run pytest -q` → **56 passed, 1 warning**（2026-11-04 复核；含 API 层 `/health` 状态流转、`/analyze`、`/review`、`/export`、跨 service 实例 resume）。
+3. 测试全绿：`uv run pytest -q -m "not live"` → **142 passed, 1 deselected, 1 warning**（2026-11-11 复核；含任务化 `/analyze`、`/tasks` 取消/重试/幂等、上传边界、matter token、MCP 真实子进程、trace 与 Provider 治理）。测试数以 §4.1 的最终回归表为准，本节只复述同一 commit 的结果。live API 用 `uv run pytest -q -m live` 单独跑，不与离线通过率混写。
 4. 法条语料 1465 条，构建幂等（两次 SHA256 相同）；劳动法康熙部首归一化 1018 字、残留 0。
 5. 合成集 v1 18/18、v2 30/30（注入式 gold），并明确这是“注入风险是否被检出”，不是法律效果。
 6. 检索评测 325 题 / 626 个 gold 条号，三档条号召回@5 405/626、398/626、439/626，且 CPU/GPU 召回一致。
@@ -453,9 +523,9 @@ mock 的风险判定是显式规则表（代码同源：`lexflow/review/rules.py
 - mock 规则表在示例/合成合同上的召回与 precision **不是真实合同审查准确率**；合成 gold 由注入规则反推，与规则表同构。
 - 真实 API（DeepSeek/Qwen）的抽取质量与引用准确率**尚未评测**；本次 top-k A/B 只有 6 份样本上的成本/耗时与 5 条引用抽检，不能当作 API 效果结论（见 [§4.5](#45-top-k-对照实验与结论2026-11)）。
 - 检索评测的 325 题来自外部既有 QA/gold 集，题目与法条词汇重合度高；问题命中 top-5 已饱和，不代表真实用户查询分布。
-- 两路审查未合并，findings 计数包含法务/商务各一份；不能把条数直接当“风险点数量”。
+- 跨路合并后 findings 已去重，但「findings 条数」仍不等于「风险点个数」：同一句话被两路标成不同 `risk_type` 时会保留两条（劳动合同实测 12 条 findings / 9 个风险点）。对外引用时以 `risk_points` 为准，并注明合并键。
 - 没有真实合同样本、律师标注、扫描件合同、并发/多租户压测数据。
-- 真实 API 的引用适用性未评测：top-k 抽检 5 条中 2 条明显错位（劳动法 79、民法典 628），三闸无法拦截（见 [§4.5](#45-top-k-对照实验与结论2026-11)）。
+- 真实 API 的引用适用性未评测：top-k 抽检 5 条中 2 条明显错位（劳动法 79、民法典 628），当时的三道闸无法拦截；现在 G4/G5 也不判断法条与条款的语义相关性（见 [§4.5](#45-top-k-对照实验与结论2026-11)）。
 - docx 的段落定位锚是逻辑定位，不是纸张页码。
 
 ### 4.5 top-k 对照实验与结论（2026-11）
@@ -465,7 +535,7 @@ mock 的风险判定是显式规则表（代码同源：`lexflow/review/rules.py
 - 6 份样本：`examples/sample_service_contract.docx`、`examples/sample_procurement_contract.pdf`、`data/synthetic_v1/contracts/tech_0.docx` ~ `tech_3.docx`（后 4 份是 v1 gold 的前 4 条）。
 - 来源：本机单次 A/B 运行记录（`AnalyzeService.analyze`，与 CLI 同一条链路），逐文件记录 findings、引用、三闸、token、成本与耗时。
 
-> **口径提示**：本节 A/B 实验完成于五道闸与跨路合并上线**之前**，表中的 findings 数与「三闸全过」都是当时口径。当前链路为五闸 + `(clause_id, risk_type)` 合并，同一份合同的 findings 数约为当时的一半，**不可与本表直接对比**；本节结论（闸门通过率不是检测质量指标）仍然成立。
+> **口径提示**：本节 A/B 实验完成于五道闸与跨路合并上线**之前**，表中的 findings 数与「三闸全过」都是当时口径。当前链路为五道纯规则闸（三态输出）+ `(clause_id, risk_type, 引文)` 合并，同一份合同的 findings 数约为当时的一半，**不可与本表直接对比**；本节结论（闸门通过率不是检测质量指标）仍然成立。
 
 **A/B 对照表**：
 
@@ -575,6 +645,39 @@ mock 的风险判定是显式规则表（代码同源：`lexflow/review/rules.py
 **结论三：仍有 3 条重复没合掉。** 同一句话被两路以不同 `risk_type` 各报一次（如 C0002 的调岗、C0005 的 3 倍违约金、C0006 的单方解释权），合并键要求 `(clause_id, risk_type, 引文)` 三者一致，`risk_type` 不同就留两条。这是当前合并策略的边界，不是 bug；**代价是同一句话可能出现两条措辞不同的 finding**。
 
 **局限**：真实合同只有 1 份模板，不足以支撑任何比率结论；上表只说明「能跑通且抓对了这些点」，不是准确率。模型输出非确定，重跑条数会变（上一次为 13 条）。
+
+### 4.8 独立评测协议（2026-11-11）
+
+命令：`uv run python eval/run_protocol_eval.py`；产物 `eval/protocol_results.json` / `.md`；样本清单 `eval/public_templates/manifest.json`。
+
+- **分集**：按模板来源切 dev/test，清单里显式记录 `split`，脚本启动时校验两边来源不重叠（同源跨集直接报错）。当前 dev 2 份（synthetic service / procurement），test 1 份（公开劳动合同模板）。
+- **分指标**：严格溯源率、引用覆盖率、条款级召回、双路互补、G4 skipped、tokens/成本/延迟分开报，不合成一个「准确率」。
+- **自审标注单列**：manifest 的 `label_source=self_review`，不是律师标注；语义适用性明确 `applicability_evaluated=false`。
+
+| split | 模板数 | findings | 风险点 | 两路共有 | 严格溯源率 | 引用覆盖率 | 条款级召回 | G4 skipped |
+|---|---:|---:|---:|---:|---:|---:|---|---:|
+| dev | 2 | 9 | 9 | 9 | 100.00% | 100.00% | 88.89% | 0 |
+| test | 1 | 1 | 1 | 1 | 100.00% | 100.00% | null | 0 |
+
+- 测试集只有 1 份公开模板、且没有律师标注，召回记 `null` 而不是 0；样本量不足以支撑任何准确率结论。
+- 引用覆盖率只回答「有没有引用」，不回答「引用对不对」；后者仍未实现语义核验。
+
+### 4.9 单路 / 双路对照（2026-11-11）
+
+命令：`uv run python eval/run_dual_eval.py`；产物 `eval/dual_results.json` / `.md` / `dual_unique_points.csv`。
+
+- **控制变量**：同一批合同、同一语料、同一检索配置、同一 `engine=mock`，只切换图里的 `channels`（`legal` / `commercial` / 两路）。
+- **风险点口径**：`(clause_id, 归一化引文)`；双路结果与两路并集逐 case 比对，输出 `both_matches_union`。
+
+| case | 法务单路 | 商务单路 | 双路 | 两路共有 | 法务独有 | 商务独有 | 双路=并集 |
+|---|---:|---:|---:|---:|---:|---:|---|
+| dev-synthetic-service | 4 | 4 | 4 | 4 | 0 | 0 | 是 |
+| dev-synthetic-procurement | 5 | 5 | 5 | 5 | 0 | 0 | 是 |
+| test-public-labor-template | 1 | 1 | 1 | 1 | 0 | 0 | 是 |
+
+- 在确定性 mock 规则表下，两路命中集合完全重合，**互补数为 0**；不能据此宣称「双路一定优于单路」。真实 API 的互补性见 [§4.7](#47-真实劳动合同冒烟2026-11-10)：该合同上同样为 0，而两份示例合同上存在单路独有条目，说明互补性取决于合同类型。**结论：未观察到稳定增益**；双路保留为可切换配置（`channels`），不作为默认卖点，也不新增只换 Prompt 的第三个审查 Agent。
+- 合并键要求 `(clause_id, risk_type, 引文)` 三者一致，不会把两个不同风险塞进同一条 issue、只挂一份引文；`risk_type` 不同的重复条目保持分列，代价是同一句话可能有两条措辞不同的 finding。
+- 逐条独有贡献（本批为空）仍写入 `eval/dual_unique_points.csv`，每行带 `clause_id`、原文引文与 `risk_types`，便于换 API 引擎后直接对比。
 
 ---
 

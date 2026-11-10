@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import functools
 import json
 import sqlite3
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -15,10 +17,25 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+_UNSET = object()
+
+
+def _serialized(method):
+    """同一个 Store 会被 API 线程与后台任务线程共用，串行化访问。"""
+
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        with self._lock:
+            return method(self, *args, **kwargs)
+
+    return wrapper
+
+
 class Store:
     def __init__(self, db_path: str | Path) -> None:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._lock = threading.RLock()
         self.conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self._init_schema()
@@ -36,7 +53,8 @@ class Store:
                 stance TEXT NOT NULL,
                 as_of TEXT NOT NULL,
                 result_json TEXT,
-                docx_path TEXT
+                docx_path TEXT,
+                token TEXT NOT NULL DEFAULT ''
             );
             CREATE TABLE IF NOT EXISTS clauses (
                 matter_id TEXT NOT NULL,
@@ -103,9 +121,29 @@ class Store:
                 created_at TEXT NOT NULL,
                 decision_json TEXT
             );
+            CREATE TABLE IF NOT EXISTS tasks (
+                id TEXT PRIMARY KEY,
+                matter_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                idempotency_key TEXT,
+                attempts INTEGER NOT NULL DEFAULT 1,
+                retry_of TEXT,
+                error_code TEXT,
+                error_message TEXT,
+                trace_id TEXT
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_idempotency
+                ON tasks(idempotency_key)
+                WHERE idempotency_key IS NOT NULL AND idempotency_key <> '';
             """
         )
         self._migrate_findings_pk()
+
+        matter_columns = {row[1] for row in self.conn.execute("PRAGMA table_info(matters)")}
+        if "token" not in matter_columns:
+            self.conn.execute("ALTER TABLE matters ADD COLUMN token TEXT NOT NULL DEFAULT ''")
 
         # 兼容阶段 1/2 已有的 findings 表：新增列。
         columns = {row[1] for row in self.conn.execute("PRAGMA table_info(findings)")}
@@ -153,15 +191,28 @@ class Store:
             )
         self.conn.commit()
 
-    def save_matter(self, matter_id: str, filename: str, engine: str, stance: str, as_of: str) -> None:
+    @_serialized
+    def save_matter(
+        self,
+        matter_id: str,
+        filename: str,
+        engine: str,
+        stance: str,
+        as_of: str,
+        *,
+        token: str = "",
+    ) -> None:
         stamp = now_iso()
         self.conn.execute(
-            "INSERT OR REPLACE INTO matters (id, created_at, updated_at, filename, engine, status, stance, as_of) "
-            "VALUES (?, COALESCE((SELECT created_at FROM matters WHERE id=?), ?), ?, ?, ?, 'created', ?, ?)",
-            (matter_id, matter_id, stamp, stamp, filename, engine, stance, as_of),
+            "INSERT OR REPLACE INTO matters "
+            "(id, created_at, updated_at, filename, engine, status, stance, as_of, token) "
+            "VALUES (?, COALESCE((SELECT created_at FROM matters WHERE id=?), ?), ?, ?, ?, 'created', ?, ?, "
+            "COALESCE(NULLIF(?,''), (SELECT token FROM matters WHERE id=?)))",
+            (matter_id, matter_id, stamp, stamp, filename, engine, stance, as_of, token, matter_id),
         )
         self.conn.commit()
 
+    @_serialized
     def update_matter(
         self,
         matter_id: str,
@@ -236,6 +287,7 @@ class Store:
             """
         )
 
+    @_serialized
     def replace_clauses(self, matter_id: str, clauses: list[Clause]) -> None:
         self.conn.execute("DELETE FROM clauses WHERE matter_id = ?", (matter_id,))
         for clause in clauses:
@@ -259,6 +311,7 @@ class Store:
             )
         self.conn.commit()
 
+    @_serialized
     def replace_findings(self, matter_id: str, findings: list[Finding]) -> None:
         self.conn.execute("DELETE FROM findings WHERE matter_id = ?", (matter_id,))
         for finding in findings:
@@ -292,6 +345,7 @@ class Store:
             )
         self.conn.commit()
 
+    @_serialized
     def replace_evidence(self, matter_id: str, evidence: list[Evidence]) -> None:
         self.conn.execute("DELETE FROM evidence WHERE matter_id = ?", (matter_id,))
         for item in evidence:
@@ -314,6 +368,7 @@ class Store:
             )
         self.conn.commit()
 
+    @_serialized
     def replace_verifications(self, matter_id: str, verifications: list[Verification]) -> None:
         self.conn.execute("DELETE FROM verifications WHERE matter_id = ?", (matter_id,))
         for item in verifications:
@@ -323,6 +378,7 @@ class Store:
             )
         self.conn.commit()
 
+    @_serialized
     def add_human_review(self, matter_id: str, action: str, comment: str, decision: dict[str, Any]) -> None:
         self.conn.execute(
             "INSERT INTO human_reviews (matter_id, action, comment, created_at, decision_json) VALUES (?, ?, ?, ?, ?)",
@@ -330,19 +386,100 @@ class Store:
         )
         self.conn.commit()
 
+    @_serialized
     def get_matter(self, matter_id: str) -> dict[str, Any] | None:
         row = self.conn.execute("SELECT * FROM matters WHERE id = ?", (matter_id,)).fetchone()
         return dict(row) if row else None
 
+    @_serialized
     def count_findings(self, matter_id: str) -> int:
         row = self.conn.execute("SELECT COUNT(*) AS n FROM findings WHERE matter_id = ?", (matter_id,)).fetchone()
         return int(row["n"]) if row else 0
 
+    @_serialized
     def list_findings(self, matter_id: str) -> list[dict[str, Any]]:
         rows = self.conn.execute(
             "SELECT * FROM findings WHERE matter_id = ? ORDER BY finding_id", (matter_id,)
         ).fetchall()
         return [dict(row) for row in rows]
 
+    # ---------- 任务表（LF-N2） ----------
+
+    @_serialized
+    def create_task(
+        self,
+        task_id: str,
+        matter_id: str,
+        *,
+        status: str = "queued",
+        idempotency_key: str | None = None,
+        attempts: int = 1,
+        retry_of: str | None = None,
+        trace_id: str = "",
+    ) -> None:
+        stamp = now_iso()
+        self.conn.execute(
+            "INSERT INTO tasks "
+            "(id, matter_id, status, created_at, updated_at, idempotency_key, attempts, retry_of, trace_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (task_id, matter_id, status, stamp, stamp, idempotency_key, attempts, retry_of, trace_id),
+        )
+        self.conn.commit()
+
+    @_serialized
+    def get_task(self, task_id: str) -> dict[str, Any] | None:
+        row = self.conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        return dict(row) if row else None
+
+    @_serialized
+    def get_task_by_idempotency(self, idempotency_key: str) -> dict[str, Any] | None:
+        row = self.conn.execute(
+            "SELECT * FROM tasks WHERE idempotency_key = ?", (idempotency_key,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    @_serialized
+    def update_task(
+        self,
+        task_id: str,
+        *,
+        status: str | None = None,
+        error_code: Any = _UNSET,
+        error_message: Any = _UNSET,
+        attempts: int | None = None,
+    ) -> None:
+        fields: list[str] = ["updated_at = ?"]
+        values: list[Any] = [now_iso()]
+        if status is not None:
+            fields.append("status = ?")
+            values.append(status)
+        if error_code is not _UNSET:
+            fields.append("error_code = ?")
+            values.append(error_code)
+        if error_message is not _UNSET:
+            fields.append("error_message = ?")
+            values.append(error_message)
+        if attempts is not None:
+            fields.append("attempts = ?")
+            values.append(attempts)
+        values.append(task_id)
+        self.conn.execute(f"UPDATE tasks SET {', '.join(fields)} WHERE id = ?", values)
+        self.conn.commit()
+
+    @_serialized
+    def list_unfinished_tasks(self) -> list[dict[str, Any]]:
+        rows = self.conn.execute(
+            "SELECT * FROM tasks WHERE status IN ('queued', 'running', 'cancelling') ORDER BY created_at"
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    @_serialized
+    def has_retry_child(self, task_id: str) -> bool:
+        row = self.conn.execute(
+            "SELECT 1 FROM tasks WHERE retry_of = ? LIMIT 1", (task_id,)
+        ).fetchone()
+        return row is not None
+
+    @_serialized
     def close(self) -> None:
         self.conn.close()

@@ -1,0 +1,235 @@
+{
+  "generated_at": "2026-11-10T16:54:34.361656+00:00",
+  "engine": "mock",
+  "label_source": "self_review",
+  "cases": [
+    {
+      "id": "dev-synthetic-service",
+      "split": "dev",
+      "sample": "examples/sample_service_contract.docx",
+      "legal_only": {
+        "risk_points": 4,
+        "findings": 4,
+        "latency_ms": 20707,
+        "tokens": 0,
+        "cost_estimate_cny": 0.0,
+        "trace_id": "trace-matter-46b7566e94"
+      },
+      "commercial_only": {
+        "risk_points": 4,
+        "findings": 4,
+        "latency_ms": 959,
+        "tokens": 0,
+        "cost_estimate_cny": 0.0,
+        "trace_id": "trace-matter-93807260eb"
+      },
+      "both": {
+        "risk_points": 4,
+        "findings": 4,
+        "latency_ms": 1514,
+        "tokens": 0,
+        "cost_estimate_cny": 0.0,
+        "trace_id": "trace-matter-4e1fa61a73"
+      },
+      "complement": {
+        "common": 4,
+        "legal_unique": 0,
+        "commercial_unique": 0,
+        "union": 4,
+        "naive_sum": 8,
+        "both_matches_union": true
+      },
+      "citation_resolution": {
+        "uncited_before": 0,
+        "resolved": 0,
+        "refused": 0,
+        "tool_calls": 0,
+        "llm_calls": 0
+      },
+      "unique_rows": [
+        {
+          "sample": "examples/sample_service_contract.docx",
+          "case_id": "dev-synthetic-service",
+          "contribution": "both_common",
+          "clause_id": "C0002",
+          "quote": "甲方应在合同签订后五个工作日内支付全款，乙方未完成验收前甲方不得要求退款",
+          "risk_types": "payment",
+          "finding_ids": "F-legal-C0002-1"
+        },
+        {
+          "sample": "examples/sample_service_contract.docx",
+          "case_id": "dev-synthetic-service",
+          "contribution": "both_common",
+          "clause_id": "C0004",
+          "quote": "任何一方违约的，应按合同总额每日千分之五向对方支付违约金，违约金不设上限",
+          "risk_types": "penalty_cap",
+          "finding_ids": "F-legal-C0004-1"
+        },
+        {
+          "sample": "examples/sample_service_contract.docx",
+          "case_id": "dev-synthetic-service",
+          "contribution": "both_common",
+          "clause_id": "C0005",
+          "quote": "第五条 单方解除",
+          "risk_types": "termination",
+          "finding_ids": "F-legal-C0005-1"
+        },
+        {
+          "sample": "examples/sample_service_contract.docx",
+          "case_id": "dev-synthetic-service",
+          "contribution": "both_common",
+          "clause_id": "C0006",
+          "quote": "因本合同产生的争议，由甲方所在地人民法院管辖",
+          "risk_types": "jurisdiction",
+          "finding_ids": "F-legal-C0006-1"
+        }
+      ]
+    },
+    {
+      "id": "dev-synthetic-procurement",
+      "split": "dev",
+      "sample": "examples/sample_procurement_contract.pdf",
+      "legal_only": {
+        "risk_points": 5,
+        "findings": 5,
+        "latency_ms": 1312,
+        "tokens": 0,
+        "cost_estimate_cny": 0.0,
+        "trace_id": "trace-matter-9f51f016bb"
+      },
+      "commercial_only": {
+        "risk_points": 5,
+        "findings": 5,
+        "latency_ms": 1087,
+        "tokens": 0,
+        "cost_estimate_cny": 0.0,
+        "trace_id": "trace-matter-999f35435d"
+      },
+      "both": {
+        "risk_points": 5,
+        "findings": 5,
+        "latency_ms": 1572,
+        "tokens": 0,
+        "cost_estimate_cny": 0.0,
+        "trace_id": "trace-matter-a58bc4cd67"
+      },
+      "complement": {
+        "common": 5,
+        "legal_unique": 0,
+        "commercial_unique": 0,
+        "union": 5,
+        "naive_sum": 10,
+        "both_matches_union": true
+      },
+      "citation_resolution": {
+        "uncited_before": 0,
+        "resolved": 0,
+        "refused": 0,
+        "tool_calls": 0,
+        "llm_calls": 0
+      },
+      "unique_rows": [
+        {
+          "sample": "examples/sample_procurement_contract.pdf",
+          "case_id": "dev-synthetic-procurement",
+          "contribution": "both_common",
+          "clause_id": "C0002",
+          "quote": "甲方应在合同生效后十日内支付百分之百预付款，乙方发货时间另行协商",
+          "risk_types": "payment",
+          "finding_ids": "F-legal-C0002-1"
+        },
+        {
+          "sample": "examples/sample_procurement_contract.pdf",
+          "case_id": "dev-synthetic-procurement",
+          "contribution": "both_common",
+          "clause_id": "C0003",
+          "quote": "甲方应在到货后七日内验收，验收标准由乙方单方确定",
+          "risk_types": "acceptance_standard",
+          "finding_ids": "F-legal-C0003-1"
+        },
+        {
+          "sample": "examples/sample_procurement_contract.pdf",
+          "case_id": "dev-synthetic-procurement",
+          "contribution": "both_common",
+          "clause_id": "C0005",
+          "quote": "乙方逾期交货的，每逾期一日按合同总价千分之三支付违约金",
+          "risk_types": "penalty_cap",
+          "finding_ids": "F-legal-C0005-2"
+        },
+        {
+          "sample": "examples/sample_procurement_contract.pdf",
+          "case_id": "dev-synthetic-procurement",
+          "contribution": "both_common",
+          "clause_id": "C0005",
+          "quote": "甲方逾期付款的，不承担违约责任",
+          "risk_types": "payment_liability_exemption",
+          "finding_ids": "F-legal-C0005-1"
+        },
+        {
+          "sample": "examples/sample_procurement_contract.pdf",
+          "case_id": "dev-synthetic-procurement",
+          "contribution": "both_common",
+          "clause_id": "C0007",
+          "quote": "争议由乙方所在地人民法院管辖",
+          "risk_types": "jurisdiction",
+          "finding_ids": "F-legal-C0007-1"
+        }
+      ]
+    },
+    {
+      "id": "test-public-labor-template",
+      "split": "test",
+      "sample": "examples/real/labor_contract.docx",
+      "legal_only": {
+        "risk_points": 1,
+        "findings": 1,
+        "latency_ms": 854,
+        "tokens": 0,
+        "cost_estimate_cny": 0.0,
+        "trace_id": "trace-matter-493386a5ae"
+      },
+      "commercial_only": {
+        "risk_points": 1,
+        "findings": 1,
+        "latency_ms": 781,
+        "tokens": 0,
+        "cost_estimate_cny": 0.0,
+        "trace_id": "trace-matter-015e655508"
+      },
+      "both": {
+        "risk_points": 1,
+        "findings": 1,
+        "latency_ms": 1330,
+        "tokens": 0,
+        "cost_estimate_cny": 0.0,
+        "trace_id": "trace-matter-d0e559d834"
+      },
+      "complement": {
+        "common": 1,
+        "legal_unique": 0,
+        "commercial_unique": 0,
+        "union": 1,
+        "naive_sum": 2,
+        "both_matches_union": true
+      },
+      "citation_resolution": {
+        "uncited_before": 0,
+        "resolved": 0,
+        "refused": 0,
+        "tool_calls": 0,
+        "llm_calls": 0
+      },
+      "unique_rows": [
+        {
+          "sample": "examples/real/labor_contract.docx",
+          "case_id": "test-public-labor-template",
+          "contribution": "both_common",
+          "clause_id": "C0005",
+          "quote": "乙方在合同期内不得结婚或生育，否则甲方有权单方解除合同且不支付经济补偿",
+          "risk_types": "termination",
+          "finding_ids": "F-legal-C0005-1"
+        }
+      ]
+    }
+  ]
+}

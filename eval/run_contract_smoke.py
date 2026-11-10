@@ -116,6 +116,7 @@ def smoke_one(service: AnalyzeService, path: Path, engine: str) -> dict:
         "cost_cny": report_metrics.get("cost_estimate_cny"),
         "elapsed_ms": report_metrics.get("node_latency_ms_total", 0),
         "retrieval_mode": report_metrics.get("retrieval_mode", ""),
+        "trace_id": report_metrics.get("trace_id", ""),
     }
 
 

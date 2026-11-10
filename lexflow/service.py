@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import threading
@@ -16,14 +17,29 @@ from langgraph.types import Command
 
 from lexflow.config import Settings, get_settings
 from lexflow.failures import FailureLog
-from lexflow.graph.build import build_graph
+from lexflow.graph.build import ALL_CHANNELS, build_graph
+from lexflow.llm.errors import classify_exception
 from lexflow.llm.factory import build_provider
-from lexflow.logging import get_logger, log_event
+from lexflow.logging import get_logger, log_event, reset_trace_id, set_trace_id
 from lexflow.retrieval.corpus import load_corpus
 from lexflow.retrieval.hybrid import HybridRetriever
+from lexflow.review.reviewer import PROMPT_VERSION
 from lexflow.storage.db import Store
+from lexflow.trace import Tracer
 
 logger = get_logger("lexflow.service")
+
+
+def _file_sha256(path: Path) -> str:
+    """语料/模板的版本指纹；只读文件，不缓存，启动一次算一次。"""
+    try:
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()[:12]
+    except OSError:
+        return "unknown"
 
 
 @dataclass
@@ -37,6 +53,7 @@ class RunResult:
     warnings: list[str] = field(default_factory=list)
     report: dict[str, Any] = field(default_factory=dict)
     raw_state: dict[str, Any] = field(default_factory=dict)
+    trace_id: str = ""
 
 
 class AnalyzeService:
@@ -46,6 +63,8 @@ class AnalyzeService:
         self.store = Store(self.settings.db_path)
         self.failure_log = FailureLog(self.settings.failures_path)
         self.articles, self.corpus_mode = load_corpus(self.settings.corpus_path)
+        self.corpus_version = _file_sha256(Path(self.settings.corpus_path))
+        self.prompt_version = PROMPT_VERSION
         self.retriever = HybridRetriever(
             self.articles,
             self.settings.embedding_model,
@@ -140,12 +159,62 @@ class AnalyzeService:
             device=reranker.resolved_device or "n/a",
         )
 
-    def _graph(self, engine: str):
+    def _graph(
+        self,
+        engine: str,
+        *,
+        matter_id: str,
+        stance: str,
+        as_of: str,
+        channels: tuple[str, ...] | list[str] = ALL_CHANNELS,
+    ) -> tuple[Any, Any, Tracer]:
+        """建 provider + 图 + tracer。tracer 必须在建图前就绪，节点才能写同一个 trace。"""
         provider = build_provider(self.settings, engine)
-        bundle = build_graph(
-            self.settings, self.store, self.retriever, provider, failure_log=self.failure_log
+        tracer = self._make_tracer(
+            matter_id,
+            provider_engine=provider.engine,
+            model=provider.model,
+            stance=stance,
+            as_of=as_of,
+            channels=channels,
         )
-        return provider, bundle
+        bundle = build_graph(
+            self.settings,
+            self.store,
+            self.retriever,
+            provider,
+            failure_log=self.failure_log,
+            tracer=tracer,
+            channels=channels,
+        )
+        return provider, bundle, tracer
+
+    def _make_tracer(
+        self,
+        matter_id: str,
+        *,
+        provider_engine: str,
+        model: str,
+        stance: str,
+        as_of: str,
+        channels: tuple[str, ...] | list[str],
+    ) -> Tracer:
+        trace_id = f"trace-{matter_id}"
+        path = self.settings.artifacts_dir / matter_id / "trace.jsonl"
+        return Tracer(
+            trace_id,
+            path,
+            meta={
+                "matter_id": matter_id,
+                "engine": provider_engine,
+                "model": model,
+                "prompt_version": self.prompt_version,
+                "corpus_version": self.corpus_version,
+                "stance": stance,
+                "as_of": as_of,
+                "channels": list(channels),
+            },
+        )
 
     def _rerank_metrics(self, requested: bool, before: dict[str, int]) -> dict[str, Any]:
         """按本次审查的增量算 rerank 指标。
@@ -192,6 +261,7 @@ class AnalyzeService:
         metrics = dict(report.get("metrics") or {})
         metrics["node_latency_ms"] = timings
         metrics["node_latency_ms_total"] = sum(timings.values())
+        metrics.setdefault("trace_id", f"trace-{matter_id}")
         if rerank_meta:
             metrics.update(rerank_meta)
         report["metrics"] = metrics
@@ -208,21 +278,40 @@ class AnalyzeService:
         require_confirmation: bool = True,
         auto_approve: bool = False,
         rerank: bool | None = None,
+        channels: tuple[str, ...] | list[str] = ALL_CHANNELS,
+        matter_id: str | None = None,
+        token: str = "",
     ) -> RunResult:
-        """``rerank=None`` 时取 ``LEXFLOW_RERANKER_ENABLED``；显式 True/False 覆盖它。"""
+        """``rerank=None`` 时取 ``LEXFLOW_RERANKER_ENABLED``；显式 True/False 覆盖它。
+
+        ``channels`` 只用于单路/双路对照实验；默认两路并行，与旧行为一致。
+        ``matter_id`` / ``token`` 由 API 任务化入口预先分配，CLI 与评测不传时自动生成。
+        """
         started = time.perf_counter()
         rerank_on = self.settings.reranker_enabled if rerank is None else bool(rerank)
         stats_before = self.retriever.rerank_stats
-        matter_id = f"matter-{uuid.uuid4().hex[:10]}"
+        matter_id = matter_id or f"matter-{uuid.uuid4().hex[:10]}"
         source_dir = self.settings.artifacts_dir / matter_id
         source_dir.mkdir(parents=True, exist_ok=True)
         source = Path(file_path)
         copied = source_dir / source.name
         shutil.copy2(source, copied)
 
-        provider, bundle = self._graph(engine)
+        provider, bundle, tracer = self._graph(
+            engine,
+            matter_id=matter_id,
+            stance=stance,
+            as_of=as_of or date.today().isoformat(),
+            channels=channels,
+        )
+        trace_id = f"trace-{matter_id}"
         self.store.save_matter(
-            matter_id, source.name, provider.engine, stance, as_of or date.today().isoformat()
+            matter_id,
+            source.name,
+            provider.engine,
+            stance,
+            as_of or date.today().isoformat(),
+            token=token,
         )
         initial = {
             "matter_id": matter_id,
@@ -235,6 +324,11 @@ class AnalyzeService:
             "auto_approve": auto_approve,
             "rerank": rerank_on,
             "engine": provider.engine,
+            "trace_id": trace_id,
+            "model_name": provider.model,
+            "prompt_version": self.prompt_version,
+            "corpus_version": self.corpus_version,
+            "channels": list(channels),
             "findings": [],
             "evidence": [],
             "verifications": [],
@@ -243,14 +337,29 @@ class AnalyzeService:
             "prompt_tokens": 0,
             "completion_tokens": 0,
             "node_timings": {},
+            "llm_calls_meta": [],
+            "tool_calls": [],
+            "citation_resolutions": [],
             "retrieval_mode": self.retriever.mode,
             "retrieval_device": self.retriever.embedder.resolved_device or "n/a",
         }
+        tracer.record(
+            "request.start",
+            filename=source.name,
+            bytes=source.stat().st_size,
+            engine=provider.engine,
+            engine_requested=engine,
+            require_confirmation=require_confirmation,
+            rerank=rerank_on,
+        )
         config = {"configurable": {"thread_id": matter_id}}
+        token = set_trace_id(trace_id)
         try:
             state = bundle.graph.invoke(initial, config)
         except Exception as exc:
             self.store.update_matter(matter_id, status="failed")
+            error = classify_exception(exc)
+            elapsed = int((time.perf_counter() - started) * 1000)
             log_event(
                 logger,
                 "analyze.failed",
@@ -258,17 +367,35 @@ class AnalyzeService:
                 node="graph",
                 model=provider.model,
                 tokens=0,
-                latency=int((time.perf_counter() - started) * 1000),
+                latency=elapsed,
                 status="error",
                 device=self.retriever.embedder.resolved_device or "n/a",
-                error=f"{type(exc).__name__}: {exc}",
+                error_category=error.category,
+                error_type=type(exc).__name__,
+            )
+            tracer.record(
+                "request.failed",
+                category=error.category,
+                error_type=type(exc).__name__,
+                latency_ms=elapsed,
             )
             raise
+        finally:
+            reset_trace_id(token)
+            # 每次请求一条 checkpoint 连接；任务化后由后台线程持有，必须显式关掉。
+            bundle.close()
         status = "awaiting_review" if "__interrupt__" in state else "completed"
         report = self._finalize_report(
             matter_id, state, rerank_meta=self._rerank_metrics(rerank_on, stats_before)
         )
         elapsed = int((time.perf_counter() - started) * 1000)
+        tracer.record(
+            "request.end",
+            status=status,
+            findings=len(report.get("findings", [])),
+            llm_calls=int(report.get("metrics", {}).get("llm_calls", 0)),
+            elapsed_ms=elapsed,
+        )
         return RunResult(
             matter_id=matter_id,
             status=status,
@@ -279,6 +406,7 @@ class AnalyzeService:
             warnings=list(state.get("warnings", [])),
             report=report,
             raw_state={k: v for k, v in state.items() if k != "__interrupt__"},
+            trace_id=trace_id,
         )
 
     @staticmethod
@@ -311,13 +439,52 @@ class AnalyzeService:
         matter = self.store.get_matter(matter_id)
         if not matter:
             raise KeyError(f"matter 不存在: {matter_id}")
-        provider, bundle = self._graph(matter["engine"])
+        if matter.get("status") == "cancelled":
+            raise RuntimeError(f"matter 已取消，不能复核或导出: {matter_id}")
+        if matter.get("status") == "completed" and matter.get("docx_path"):
+            # 重复 review 不再跑图、不再调用模型：直接回放已落库结果，避免重复扣费与重复写盘。
+            try:
+                report = json.loads(matter.get("result_json") or "{}")
+            except (TypeError, ValueError):
+                report = {}
+            return RunResult(
+                matter_id=matter_id,
+                status="completed",
+                engine=str(matter.get("engine", "")),
+                findings_count=len(report.get("findings", [])),
+                docx_path=str(matter.get("docx_path") or ""),
+                elapsed_ms=0,
+                warnings=[],
+                report=report,
+                raw_state={},
+                trace_id=f"trace-{matter_id}",
+            )
+        trace_id = f"trace-{matter_id}"
+        provider, bundle, tracer = self._graph(
+            matter["engine"],
+            matter_id=matter_id,
+            stance=str(matter.get("stance", "")),
+            as_of=str(matter.get("as_of", "")),
+            channels=ALL_CHANNELS,
+        )
+        tracer.record("request.resume", action=action, comment_chars=len(comment))
         config = {"configurable": {"thread_id": matter_id}}
-        state = bundle.graph.invoke(Command(resume={"action": action, "comment": comment}), config)
+        token = set_trace_id(trace_id)
+        try:
+            state = bundle.graph.invoke(Command(resume={"action": action, "comment": comment}), config)
+        finally:
+            reset_trace_id(token)
+            bundle.close()
         state = self._restore_report_metrics(matter, state)
         report = self._finalize_report(matter_id, state)
         matter = self.store.get_matter(matter_id) or matter
         elapsed = int((time.perf_counter() - started) * 1000)
+        tracer.record(
+            "request.end",
+            status="completed" if state.get("docx_path") else matter["status"],
+            action=action,
+            elapsed_ms=elapsed,
+        )
         return RunResult(
             matter_id=matter_id,
             status="completed" if state.get("docx_path") else matter["status"],
@@ -328,6 +495,7 @@ class AnalyzeService:
             warnings=list(state.get("warnings", [])),
             report=report,
             raw_state={k: v for k, v in state.items() if k != "__interrupt__"},
+            trace_id=trace_id,
         )
 
     def get_docx_path(self, matter_id: str) -> Path:

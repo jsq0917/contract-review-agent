@@ -17,6 +17,7 @@ from lexflow.report.docx_export import export_docx
 from lexflow.review.reviewer import review_clauses
 from lexflow.segment import segment_clauses
 from lexflow.storage.db import Store
+from lexflow.trace import Tracer
 from lexflow.verify.gates import verify_finding
 
 logger = get_logger("lexflow.graph")
@@ -26,9 +27,15 @@ def _ms(start: float) -> int:
     return int((time.perf_counter() - start) * 1000)
 
 
-def parse_node(state: dict[str, Any]) -> dict[str, Any]:
+def _record(tracer: Tracer | None, event: str, **fields: Any) -> None:
+    if tracer is not None:
+        tracer.record(event, **fields)
+
+
+def parse_node(state: dict[str, Any], tracer: Tracer | None = None) -> dict[str, Any]:
     start = time.perf_counter()
     parsed = parse_document(state["doc_path"])
+    latency = _ms(start)
     log_event(
         logger,
         "node.done",
@@ -36,18 +43,28 @@ def parse_node(state: dict[str, Any]) -> dict[str, Any]:
         node="parse",
         model="parser",
         tokens=0,
-        latency=_ms(start),
+        latency=latency,
         status="ok",
         device="parser",
+    )
+    _record(
+        tracer,
+        "node.end",
+        node="parse",
+        latency_ms=latency,
+        source_type=parsed.source_type,
+        pages=len(parsed.pages),
+        chars=len(parsed.full_text),
+        tables=len(parsed.tables),
     )
     return {
         "parsed": parsed.model_dump(mode="json"),
         "warnings": parsed.warnings,
-        "node_timings": {"parse": _ms(start)},
+        "node_timings": {"parse": latency},
     }
 
 
-def segment_node(state: dict[str, Any], store: Store) -> dict[str, Any]:
+def segment_node(state: dict[str, Any], store: Store, tracer: Tracer | None = None) -> dict[str, Any]:
     start = time.perf_counter()
     parsed = ParsedDocument(**state["parsed"])
     clauses = segment_clauses(parsed)
@@ -55,6 +72,7 @@ def segment_node(state: dict[str, Any], store: Store) -> dict[str, Any]:
     warnings: list[str] = []
     if not clauses:
         warnings.append("未切分出条款，请检查文档格式")
+    latency = _ms(start)
     log_event(
         logger,
         "node.done",
@@ -62,14 +80,21 @@ def segment_node(state: dict[str, Any], store: Store) -> dict[str, Any]:
         node="segment_clauses",
         model="rule",
         tokens=0,
-        latency=_ms(start),
+        latency=latency,
         status="ok",
         device="rule",
+    )
+    _record(
+        tracer,
+        "node.end",
+        node="segment_clauses",
+        latency_ms=latency,
+        clauses=len(clauses),
     )
     return {
         "clauses": [clause.model_dump(mode="json") for clause in clauses],
         "warnings": warnings,
-        "node_timings": {"segment_clauses": _ms(start)},
+        "node_timings": {"segment_clauses": latency},
     }
 
 
@@ -80,9 +105,11 @@ def _review_node(
     retriever: Any,
     failure_log: Any = None,
     top_k: int = 3,
+    tracer: Tracer | None = None,
 ) -> dict[str, Any]:
     start = time.perf_counter()
     clauses = [Clause(**item) for item in state.get("clauses", [])]
+    call_meta: list[dict[str, Any]] = []
     findings, warnings, prompt_tokens, completion_tokens = review_clauses(
         clauses,
         retriever,
@@ -93,8 +120,11 @@ def _review_node(
         stance=state.get("stance", "甲方"),
         top_k=top_k,
         rerank=bool(state.get("rerank", False)),
+        call_meta=call_meta,
     )
     latency = _ms(start)
+    for item in call_meta:
+        _record(tracer, "llm.call", node=f"review_{reviewer}", **item)
     log_event(
         logger,
         "node.done",
@@ -106,17 +136,29 @@ def _review_node(
         status="ok",
         device=getattr(getattr(retriever, "embedder", None), "resolved_device", None) or "n/a",
     )
+    _record(
+        tracer,
+        "node.end",
+        node=f"review_{reviewer}",
+        latency_ms=latency,
+        clauses=len(clauses),
+        findings=len(findings),
+        llm_calls=len(call_meta),
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+    )
     return {
         "findings": findings,
         "warnings": warnings,
         "llm_calls": len(clauses),
         "prompt_tokens": prompt_tokens,
         "completion_tokens": completion_tokens,
+        "llm_calls_meta": call_meta,
         "node_timings": {f"review_{reviewer}": latency},
     }
 
 
-def bind_evidence_node(state: dict[str, Any], retriever: Any) -> dict[str, Any]:
+def bind_evidence_node(state: dict[str, Any], retriever: Any, tracer: Tracer | None = None) -> dict[str, Any]:
     start = time.perf_counter()
     clauses = {item["clause_id"]: Clause(**item) for item in state.get("clauses", [])}
     rerank = bool(state.get("rerank", False))
@@ -178,6 +220,16 @@ def bind_evidence_node(state: dict[str, Any], retriever: Any) -> dict[str, Any]:
         updated.append(finding.model_copy(update={"evidence_id": evidence.evidence_id}))
 
     latency = _ms(start)
+    _record(
+        tracer,
+        "node.end",
+        node="bind_evidence",
+        latency_ms=latency,
+        findings=len(updated),
+        evidence=len(ledger),
+        uncited=sum(1 for item in updated if not (item.law_name and item.article_no)),
+        retrieval_mode=retriever.mode,
+    )
     log_event(
         logger,
         "node.done",
@@ -201,7 +253,7 @@ def bind_evidence_node(state: dict[str, Any], retriever: Any) -> dict[str, Any]:
     }
 
 
-def verify_node(state: dict[str, Any]) -> dict[str, Any]:
+def verify_node(state: dict[str, Any], tracer: Tracer | None = None) -> dict[str, Any]:
     start = time.perf_counter()
     as_of = date.fromisoformat(state["as_of"])
     ledger = state.get("evidence", [])
@@ -209,6 +261,11 @@ def verify_node(state: dict[str, Any]) -> dict[str, Any]:
     for finding in state.get("findings", []):
         verifications.extend(verify_finding(finding, ledger, as_of))
     latency = _ms(start)
+    counts: dict[str, dict[str, int]] = {}
+    for item in verifications:
+        bucket = counts.setdefault(item.gate, {"pass": 0, "fail": 0, "skipped": 0})
+        bucket[item.status] = bucket.get(item.status, 0) + 1
+    _record(tracer, "node.end", node="verify", latency_ms=latency, gates=counts)
     log_event(
         logger,
         "node.done",
@@ -223,7 +280,9 @@ def verify_node(state: dict[str, Any]) -> dict[str, Any]:
     return {"verifications": verifications, "node_timings": {"verify": latency}}
 
 
-def assemble_report_node(state: dict[str, Any], store: Store, settings: Any) -> dict[str, Any]:
+def assemble_report_node(
+    state: dict[str, Any], store: Store, settings: Any, tracer: Tracer | None = None
+) -> dict[str, Any]:
     start = time.perf_counter()
     findings = list(state.get("findings", []))
     evidence = list(state.get("evidence", []))
@@ -238,7 +297,24 @@ def assemble_report_node(state: dict[str, Any], store: Store, settings: Any) -> 
             prompt_tokens / 1_000_000 * float(settings.price_input_per_m)
             + completion_tokens / 1_000_000 * float(settings.price_output_per_m)
         )
+    resolutions = list(state.get("citation_resolutions", []))
+    resolution_metrics = {
+        "uncited_before": sum(1 for item in resolutions if item.get("before") == "uncited"),
+        "resolved": sum(1 for item in resolutions if item.get("status") == "resolved"),
+        "refused": sum(1 for item in resolutions if item.get("status") == "no_applicable_law"),
+        "tool_calls": len(state.get("tool_calls", [])),
+        "llm_calls": sum(
+            1
+            for item in state.get("llm_calls_meta", [])
+            if item.get("node") == "resolve_citations"
+        ),
+    }
     metrics = {
+        "trace_id": state.get("trace_id", ""),
+        "model": state.get("model_name", ""),
+        "prompt_version": state.get("prompt_version", ""),
+        "corpus_version": state.get("corpus_version", ""),
+        "channels": list(state.get("channels", ["legal", "commercial"])),
         "llm_calls": int(state.get("llm_calls", 0)),
         "prompt_tokens": prompt_tokens,
         "completion_tokens": completion_tokens,
@@ -246,6 +322,7 @@ def assemble_report_node(state: dict[str, Any], store: Store, settings: Any) -> 
         "node_latency_ms": dict(state.get("node_timings", {})),
         "retrieval_mode": state.get("retrieval_mode", "bm25-only"),
         "retrieval_device": state.get("retrieval_device", "n/a"),
+        "citation_resolution": resolution_metrics,
     }
     report = Report(
         matter_id=state["matter_id"],
@@ -264,6 +341,16 @@ def assemble_report_node(state: dict[str, Any], store: Store, settings: Any) -> 
     store.replace_verifications(state["matter_id"], verifications)
     store.update_matter(state["matter_id"], status="awaiting_review", result=report)
     latency = _ms(start)
+    _record(
+        tracer,
+        "node.end",
+        node="assemble_report",
+        latency_ms=latency,
+        findings=len(findings),
+        evidence=len(evidence),
+        verifications=len(verifications),
+        warnings=len(report.warnings),
+    )
     log_event(
         logger,
         "node.done",
@@ -286,6 +373,7 @@ def export_docx_node(
     store: Store,
     template_path: str,
     artifacts_dir: str,
+    tracer: Tracer | None = None,
 ) -> dict[str, Any]:
     start = time.perf_counter()
     report = Report(**state["report"])
@@ -314,6 +402,14 @@ def export_docx_node(
     if decision is not None and decision.action == "reject":
         store.update_matter(state["matter_id"], status="rejected")
         latency = _ms(start)
+        _record(
+            tracer,
+            "hitl.decision",
+            node="export_docx",
+            action=decision.action,
+            latency_ms=latency,
+            exported=False,
+        )
         log_event(
             logger,
             "node.done",
@@ -337,6 +433,15 @@ def export_docx_node(
     export_docx(report, template_path, output)
     store.update_matter(state["matter_id"], status="completed", docx_path=str(output))
     latency = _ms(start)
+    _record(
+        tracer,
+        "hitl.decision",
+        node="export_docx",
+        action=decision.action if decision else "auto_approve",
+        latency_ms=latency,
+        exported=True,
+        output=output.name,
+    )
     log_event(
         logger,
         "node.done",

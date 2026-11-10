@@ -1,0 +1,36 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  offline:
+    name: offline (no API key / no GPU)
+    runs-on: ubuntu-latest
+    env:
+      LEXFLOW_EMBEDDING_ENABLED: "false"
+      LEXFLOW_RERANKER_ENABLED: "false"
+      LEXFLOW_RERANKER_WARMUP: "false"
+      LEXFLOW_MCP_ENABLED: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.6.x"
+      - name: Install Python
+        run: uv python install 3.11
+      - name: Install dependencies (locked, offline extras only)
+        run: uv sync --frozen
+      - name: Static check (compile all)
+        run: uv run python -m compileall -q lexflow eval tests scripts
+      - name: Unit + integration tests
+        run: uv run pytest -q -m "not live"
+
+  docker:
+    name: docker build (no GPU)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t lexflow:ci .

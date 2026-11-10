@@ -26,6 +26,9 @@ from lexflow.review.schema import (
 
 logger = get_logger("lexflow.review")
 
+# Prompt 版本随每次调用写入 trace；改 Prompt 时必须同步改这个值，便于回放。
+PROMPT_VERSION = "review-v3"
+
 RISK_TYPES = (
     "payment",
     "payment_liability_exemption",
@@ -148,11 +151,15 @@ def review_clauses(
     stance: str = "甲方",
     top_k: int = 3,
     rerank: bool = False,
+    call_meta: list[dict[str, Any]] | None = None,
 ) -> tuple[list[Finding], list[str], int, int]:
     """返回 (findings, warnings, prompt_tokens, completion_tokens)。
 
     ``rerank=True`` 时候选法条先经 CrossEncoder 精排。法务与商务两路传入的 query
     完全相同，精排结果由 retriever 的单飞缓存复用，不会算两遍。
+
+    ``call_meta`` 是可选的外部收集器：每次 LLM 调用追加一条治理信息
+    （模型、Prompt 版本、重试次数、降级原因、token、耗时），供 trace 使用。
     """
     system = LEGAL_SYSTEM if reviewer == "legal" else COMMERCIAL_SYSTEM
     findings: list[Finding] = []
@@ -174,12 +181,44 @@ def review_clauses(
         )
         raw_payload: Any = None
         try:
-            raw_payload, pt, ct = provider.complete_json(system, user, SCHEMA_HINT)
+            completion = provider.complete_json_with_meta(
+                system,
+                user,
+                SCHEMA_HINT,
+                # 只在 API 路径做 Provider 级 Schema 校验：mock 的结构错误仍由
+                # 下面的 Pydantic 校验归档为 schema_invalid，保持旧口径可复现。
+                validator=validate_payload if provider.engine == "api" else None,
+                prompt_version=PROMPT_VERSION,
+            )
+            raw_payload = completion.payload
+            pt, ct = completion.prompt_tokens, completion.completion_tokens
             prompt_tokens += pt
             completion_tokens += ct
+            if call_meta is not None:
+                call_meta.append(
+                    {
+                        **completion.meta.as_dict(),
+                        "clause_id": clause.clause_id,
+                        "reviewer": reviewer,
+                        "input_chars": len(user),
+                    }
+                )
         except Exception as exc:
             category = classify_exception(exc)
             reason = f"{clause.clause_id}: {type(exc).__name__}: {exc}"
+            if call_meta is not None:
+                call_meta.append(
+                    {
+                        "provider": provider.engine,
+                        "model": provider.model,
+                        "prompt_version": PROMPT_VERSION,
+                        "clause_id": clause.clause_id,
+                        "reviewer": reviewer,
+                        "status": "failed",
+                        "category": category,
+                        "error_type": type(exc).__name__,
+                    }
+                )
             if failure_log is not None:
                 failure_log.record(
                     matter_id=matter_id,
@@ -216,6 +255,9 @@ def review_clauses(
         except (SchemaViolation, CitationNotFound) as exc:
             category = classify_exception(exc)
             reason = f"{clause.clause_id}: {exc}"
+            if call_meta:
+                call_meta[-1]["status"] = "rejected"
+                call_meta[-1]["category"] = category
             if failure_log is not None:
                 failure_log.record(
                     matter_id=matter_id,

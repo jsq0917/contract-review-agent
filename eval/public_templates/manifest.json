@@ -1,0 +1,46 @@
+{
+  "version": "1",
+  "label_source": "self_review",
+  "note": "公开模板集当前只有 1 份公开劳动合同模板（非签署合同），因此测试集只有 1 个模板来源；协议支持多模板分集，但样本量不足以支撑任何准确率结论。所有标注均为自审，不是律师标注。",
+  "cases": [
+    {
+      "id": "dev-synthetic-service",
+      "path": "examples/sample_service_contract.docx",
+      "split": "dev",
+      "source": "synthetic_service_template",
+      "stance": "甲方",
+      "as_of": "2026-11-03",
+      "expected_risk_clause_ids": ["C0002", "C0004", "C0005", "C0006"],
+      "uncertain_items": [],
+      "note": "自造样例，仅用于开发集链路回归"
+    },
+    {
+      "id": "dev-synthetic-procurement",
+      "path": "examples/sample_procurement_contract.pdf",
+      "split": "dev",
+      "source": "synthetic_procurement_template",
+      "stance": "甲方",
+      "as_of": "2026-11-03",
+      "expected_risk_clause_ids": ["C0002", "C0003", "C0005", "C0006", "C0007"],
+      "uncertain_items": [],
+      "note": "自造样例，仅用于开发集链路回归"
+    },
+    {
+      "id": "test-public-labor-template",
+      "path": "examples/real/labor_contract.docx",
+      "split": "test",
+      "source": "public_labor_template",
+      "stance": "甲方",
+      "as_of": "2026-11-03",
+      "expected_risk_clause_ids": [],
+      "uncertain_items": [
+        {
+          "clause_id": null,
+          "question": "法条与条款是否语义相关（G4 适用性）",
+          "why_uncertain": "当前 G4 只做规则/存在性校验，未实现语义核验；本轮明确不评测"
+        }
+      ],
+      "note": "公开劳动合同模板，不是签署合同；无律师标注，召回率不可计算"
+    }
+  ]
+}

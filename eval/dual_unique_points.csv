@@ -1,0 +1,11 @@
+sample,case_id,contribution,clause_id,quote,risk_types,finding_ids
+examples/sample_service_contract.docx,dev-synthetic-service,both_common,C0002,甲方应在合同签订后五个工作日内支付全款，乙方未完成验收前甲方不得要求退款,payment,F-legal-C0002-1
+examples/sample_service_contract.docx,dev-synthetic-service,both_common,C0004,任何一方违约的，应按合同总额每日千分之五向对方支付违约金，违约金不设上限,penalty_cap,F-legal-C0004-1
+examples/sample_service_contract.docx,dev-synthetic-service,both_common,C0005,第五条 单方解除,termination,F-legal-C0005-1
+examples/sample_service_contract.docx,dev-synthetic-service,both_common,C0006,因本合同产生的争议，由甲方所在地人民法院管辖,jurisdiction,F-legal-C0006-1
+examples/sample_procurement_contract.pdf,dev-synthetic-procurement,both_common,C0002,甲方应在合同生效后十日内支付百分之百预付款，乙方发货时间另行协商,payment,F-legal-C0002-1
+examples/sample_procurement_contract.pdf,dev-synthetic-procurement,both_common,C0003,甲方应在到货后七日内验收，验收标准由乙方单方确定,acceptance_standard,F-legal-C0003-1
+examples/sample_procurement_contract.pdf,dev-synthetic-procurement,both_common,C0005,乙方逾期交货的，每逾期一日按合同总价千分之三支付违约金,penalty_cap,F-legal-C0005-2
+examples/sample_procurement_contract.pdf,dev-synthetic-procurement,both_common,C0005,甲方逾期付款的，不承担违约责任,payment_liability_exemption,F-legal-C0005-1
+examples/sample_procurement_contract.pdf,dev-synthetic-procurement,both_common,C0007,争议由乙方所在地人民法院管辖,jurisdiction,F-legal-C0007-1
+examples/real/labor_contract.docx,test-public-labor-template,both_common,C0005,乙方在合同期内不得结婚或生育，否则甲方有权单方解除合同且不支付经济补偿,termination,F-legal-C0005-1

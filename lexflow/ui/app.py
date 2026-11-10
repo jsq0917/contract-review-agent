@@ -6,12 +6,14 @@
 from __future__ import annotations
 
 import os
+import time
 from datetime import date
 
 import requests
 import streamlit as st
 
 API = os.getenv("LEXFLOW_API_URL", "http://127.0.0.1:8000")
+ACTIVE_STATUS = {"queued", "running", "cancelling"}
 RISK_ORDER = {"high": 0, "medium": 1, "low": 2}
 STATUS_LABEL = {"pass": "通过", "fail": "不通过", "skipped": "未判定"}
 STATUS_ICON = {"pass": "✓", "fail": "✗", "skipped": "–"}
@@ -28,11 +30,17 @@ st.title("lexflow M0：合同审查最小闭环")
 st.caption("上传合同 → 选择立场 → 审查 → 人工确认/驳回 → 导出 docx。")
 
 
+def _headers(matter: dict) -> dict[str, str]:
+    token = matter.get("token") or ""
+    return {"X-Matter-Token": token} if token else {}
+
+
 def _review(matter: dict, action: str, comment: str) -> None:
     try:
         response = requests.post(
             f"{API}/review/{matter['matter_id']}",
             json={"action": action, "comment": comment},
+            headers=_headers(matter),
             timeout=600,
         )
     except requests.RequestException as exc:
@@ -121,7 +129,7 @@ if submitted and file:
         "engine": engine,
         "rerank": "true" if rerank else "false",
     }
-    with st.spinner("审查中..."):
+    with st.spinner("提交任务..."):
         try:
             response = requests.post(f"{API}/analyze", files=files, data=data, timeout=600)
         except requests.RequestException as exc:
@@ -130,10 +138,38 @@ if submitted and file:
                 "先启动 `uv run lexflow-api`，或设置 `LEXFLOW_API_URL` 指向已运行的服务。"
             )
             st.stop()
-    if response.status_code != 200:
+    if response.status_code not in (200, 202):
         st.error(f"失败: {response.status_code} {response.text}")
     else:
-        st.session_state["matter"] = response.json()
+        record = response.json()
+        headers = _headers(record)
+        deadline = time.time() + 600
+        payload = record
+        with st.spinner(f"审查中（task {record['task_id']}）..."):
+            while payload.get("status") in ACTIVE_STATUS and time.time() < deadline:
+                time.sleep(0.5)
+                try:
+                    status_response = requests.get(
+                        f"{API}/tasks/{record['task_id']}", headers=headers, timeout=10
+                    )
+                    if status_response.status_code == 200:
+                        payload = status_response.json()
+                except requests.RequestException:
+                    break
+        result = payload.get("result") or {}
+        matter = {
+            "task_id": record["task_id"],
+            "matter_id": record["matter_id"],
+            "token": record.get("token", ""),
+            "status": payload.get("status", record.get("status")),
+            "error": payload.get("error"),
+            **result,
+        }
+        if payload.get("error"):
+            st.error(
+                f"任务失败（{payload['error'].get('code')}）：{payload['error'].get('message')}"
+            )
+        st.session_state["matter"] = matter
 
 matter = st.session_state.get("matter")
 if matter:
@@ -261,7 +297,15 @@ if matter:
             _review(matter, "reject", comment)
     elif matter["status"] == "completed":
         st.success("已确认并导出。")
-        st.link_button("下载 docx", f"{API}/export/{matter['matter_id']}")
+        st.link_button(
+            "下载 docx",
+            f"{API}/export/{matter['matter_id']}?token={matter.get('token', '')}",
+        )
     elif matter["status"] == "rejected":
         st.warning("已驳回；checkpoint 保留，可用 service.review 重新确认。")
-        st.link_button("查看当前 docx（若已生成）", f"{API}/export/{matter['matter_id']}")
+        st.link_button(
+            "查看当前 docx（若已生成）",
+            f"{API}/export/{matter['matter_id']}?token={matter.get('token', '')}",
+        )
+    elif matter["status"] in ("cancelled", "failed", "interrupted"):
+        st.warning(f"任务状态：{matter['status']}；不提供复核与导出。")

@@ -84,6 +84,7 @@ def compute_entry(service: AnalyzeService, row: dict, engine: str = "mock") -> d
         "sample": row["sample"],
         "engine": result.engine,
         "matter_id": result.matter_id,
+        "trace_id": result.trace_id,
         "expected_clauses": row["expected_clause_count"],
         "parsed_clauses": len(parsed_clauses),
         "expected_risk_clauses": len(expected),

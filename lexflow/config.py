@@ -81,6 +81,72 @@ class Settings:
     price_input_per_m: str = field(default_factory=lambda: os.getenv("LEXFLOW_PRICE_INPUT_PER_M", ""))
     price_output_per_m: str = field(default_factory=lambda: os.getenv("LEXFLOW_PRICE_OUTPUT_PER_M", ""))
 
+    # ---- LLM 调用治理 ----
+    # 备用模型与备用 Key 是两件事：前者是模型名列表，后者只用于换密钥重试。
+    # 两者都不配置时，行为与旧版一致（单模型、单 Key）。
+    fallback_models: tuple[str, ...] = field(
+        default_factory=lambda: tuple(
+            item.strip()
+            for item in os.getenv("LEXFLOW_FALLBACK_MODELS", "").split(",")
+            if item.strip()
+        )
+    )
+    fallback_api_key: str = field(default_factory=lambda: os.getenv("LEXFLOW_FALLBACK_API_KEY", ""))
+    llm_connect_timeout_s: float = field(
+        default_factory=lambda: float(os.getenv("LEXFLOW_LLM_CONNECT_TIMEOUT_S", "10"))
+    )
+    llm_read_timeout_s: float = field(
+        default_factory=lambda: float(os.getenv("LEXFLOW_LLM_READ_TIMEOUT_S", "120"))
+    )
+    llm_total_deadline_s: float = field(
+        default_factory=lambda: float(os.getenv("LEXFLOW_LLM_TOTAL_DEADLINE_S", "180"))
+    )
+    llm_max_retries: int = field(default_factory=lambda: int(os.getenv("LEXFLOW_LLM_MAX_RETRIES", "2")))
+    llm_backoff_base_s: float = field(
+        default_factory=lambda: float(os.getenv("LEXFLOW_LLM_BACKOFF_BASE_S", "0.5"))
+    )
+    llm_max_concurrency: int = field(
+        default_factory=lambda: int(os.getenv("LEXFLOW_LLM_MAX_CONCURRENCY", "4"))
+    )
+    # Function Call + MCP 引用补证：默认开启（mock 路径也走，零成本）；
+    # 关闭后退回旧的「不补证、只记录 citation_reason」行为。
+    resolve_citations: bool = field(
+        default_factory=lambda: _env_bool("LEXFLOW_RESOLVE_CITATIONS", True)
+    )
+    resolve_max_rounds: int = field(
+        default_factory=lambda: int(os.getenv("LEXFLOW_RESOLVE_MAX_ROUNDS", "2"))
+    )
+    resolve_max_tool_steps: int = field(
+        default_factory=lambda: int(os.getenv("LEXFLOW_RESOLVE_MAX_TOOL_STEPS", "4"))
+    )
+    # 单次审查最多补证多少条未引用 finding；超出部分如实记为 skipped_budget。
+    resolve_max_findings: int = field(
+        default_factory=lambda: int(os.getenv("LEXFLOW_RESOLVE_MAX_FINDINGS", "8"))
+    )
+    mcp_enabled: bool = field(default_factory=lambda: _env_bool("LEXFLOW_MCP_ENABLED", True))
+    mcp_timeout_s: float = field(default_factory=lambda: float(os.getenv("LEXFLOW_MCP_TIMEOUT_S", "20")))
+
+    # ---- API 边界 ----
+    max_upload_bytes: int = field(
+        default_factory=lambda: int(os.getenv("LEXFLOW_MAX_UPLOAD_BYTES", str(10 * 1024 * 1024)))
+    )
+    allowed_extensions: tuple[str, ...] = field(
+        default_factory=lambda: tuple(
+            item.strip().lower()
+            for item in os.getenv("LEXFLOW_ALLOWED_EXTENSIONS", ".pdf,.docx,.png,.jpg,.jpeg").split(",")
+            if item.strip()
+        )
+    )
+    # 单机默认开启 matter token：/review 与 /export 需要 analyze 返回的 token。
+    api_require_token: bool = field(
+        default_factory=lambda: _env_bool("LEXFLOW_API_REQUIRE_TOKEN", True)
+    )
+    # 长任务：后台线程数、单任务最多重试次数（只对失败/取消/中断任务生效）。
+    task_workers: int = field(default_factory=lambda: int(os.getenv("LEXFLOW_TASK_WORKERS", "2")))
+    task_max_retries: int = field(
+        default_factory=lambda: int(os.getenv("LEXFLOW_TASK_MAX_RETRIES", "1"))
+    )
+
     # 条款审查时检索候选法条的数量；默认 3 保持既有行为。
     statute_top_k: int = field(default_factory=lambda: int(os.getenv("LEXFLOW_STATUTE_TOP_K", "3")))
 

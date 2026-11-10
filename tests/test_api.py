@@ -1,6 +1,6 @@
 """API 层测试：TestClient + 临时目录，不写真实 data/。
 
-覆盖 /health（indexing→hybrid 状态流转）、/analyze、/review、/export，
+覆盖 /health（indexing→hybrid 状态流转）、任务化 /analyze + /tasks、/review、/export，
 以及“进程中断后用新 service 实例按 matter_id 恢复”的 API 路径。
 """
 
@@ -23,17 +23,44 @@ DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.docu
 def client(settings, monkeypatch):
     svc = AnalyzeService(settings)
     monkeypatch.setattr(api_main, "service", svc)
+    monkeypatch.setattr(api_main, "tasks", None)
     with TestClient(api_main.app) as test_client:
         yield test_client, svc
+    manager = api_main.tasks
+    if manager is not None:
+        manager.shutdown()
 
 
-def _upload(client: TestClient, path: Path, **form):
+def _upload(client: TestClient, path: Path, headers: dict | None = None, **form):
     with path.open("rb") as handle:
         return client.post(
             "/analyze",
             files={"file": (path.name, handle.read(), DOCX_MIME)},
             data={"stance": "甲方", "as_of": "2026-11-03", "engine": "mock", **form},
+            headers=headers or {},
         )
+
+
+def _wait(client: TestClient, record: dict, timeout: float = 120.0) -> dict:
+    headers = {"X-Matter-Token": record["token"]}
+    deadline = time.time() + timeout
+    payload: dict = record
+    while time.time() < deadline:
+        response = client.get(f"/tasks/{record['task_id']}", headers=headers)
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        if payload["status"] not in ("queued", "running", "cancelling"):
+            return payload
+        time.sleep(0.05)
+    raise AssertionError(f"任务未在 {timeout}s 内结束: {payload}")
+
+
+def _analyze(client: TestClient, path: Path, **form) -> dict:
+    response = _upload(client, path, **form)
+    assert response.status_code == 202, response.text
+    record = response.json()
+    record["matter_id"]
+    return _wait(client, record)
 
 
 def test_health_fields_and_corpus(client):
@@ -64,13 +91,13 @@ def test_health_fields_and_corpus(client):
 
 
 def test_analyze_with_rerank_requested_but_unavailable(client):
-    """请求精排但模型未配置：必须 200、降级 hybrid，并在 metrics 里说清没生效。"""
+    """请求精排但模型未配置：任务正常结束、降级 hybrid，并在 metrics 里说清没生效。"""
     test_client, _svc = client
-    response = _upload(
+    payload = _analyze(
         test_client, ROOT / "examples" / "sample_service_contract.docx", rerank="true"
     )
-    assert response.status_code == 200
-    metrics = response.json()["metrics"]
+    assert payload["status"] == "awaiting_review"
+    metrics = payload["result"]["metrics"]
     assert metrics["rerank_requested"] is True
     assert metrics["rerank_used"] is False
     assert metrics["rerank_applied"] == 0
@@ -81,9 +108,8 @@ def test_analyze_with_rerank_requested_but_unavailable(client):
 def test_analyze_without_rerank_keeps_hybrid(client):
     """不传 rerank 时取 settings 默认（False），不发起任何精排调用。"""
     test_client, _svc = client
-    metrics = _upload(test_client, ROOT / "examples" / "sample_service_contract.docx").json()[
-        "metrics"
-    ]
+    payload = _analyze(test_client, ROOT / "examples" / "sample_service_contract.docx")
+    metrics = payload["result"]["metrics"]
     assert metrics["rerank_requested"] is False
     assert metrics["rerank_used"] is False
     assert metrics["rerank_applied"] == 0
@@ -134,12 +160,19 @@ def test_health_indexing_then_hybrid(client):
 def test_analyze_review_export(client):
     test_client, _svc = client
     response = _upload(test_client, ROOT / "examples" / "sample_service_contract.docx")
-    assert response.status_code == 200
-    payload = response.json()
+    assert response.status_code == 202, response.text
+    record = response.json()
+    assert record["status"] == "queued"
+    assert record["matter_id"].startswith("matter-")
+    assert record["task_id"].startswith("task-")
+    assert record["token"]
+
+    task = _wait(test_client, record)
+    assert task["status"] == "awaiting_review"
+    payload = task["result"]
     assert payload["status"] == "awaiting_review"
     assert payload["engine"] == "mock"
     assert payload["findings_count"] > 0
-    assert payload["matter_id"].startswith("matter-")
     assert payload["report"]["doc_id"]
     metrics = payload["metrics"]
     assert metrics["llm_calls"] > 0
@@ -151,10 +184,13 @@ def test_analyze_review_export(client):
         assert finding["doc_id"] == payload["report"]["doc_id"]
 
     matter_id = payload["matter_id"]
-    assert test_client.get(f"/export/{matter_id}").status_code == 409
+    headers = {"X-Matter-Token": record["token"]}
+    assert test_client.get(f"/export/{matter_id}", headers=headers).status_code == 409
 
     reviewed = test_client.post(
-        f"/review/{matter_id}", json={"action": "approve", "comment": "API 确认"}
+        f"/review/{matter_id}",
+        json={"action": "approve", "comment": "API 确认"},
+        headers=headers,
     )
     assert reviewed.status_code == 200
     body = reviewed.json()
@@ -166,11 +202,17 @@ def test_analyze_review_export(client):
     assert body["metrics"]["rerank_requested"] is False
     assert body["metrics"]["rerank_used"] is False
 
-    exported = test_client.get(f"/export/{matter_id}")
+    exported = test_client.get(f"/export/{matter_id}", headers=headers)
     assert exported.status_code == 200
     assert exported.headers["content-type"].startswith(DOCX_MIME)
     assert matter_id in exported.headers["content-disposition"]
     assert len(exported.content) > 0
+
+    # 重复 review 不再跑图：直接回放已完成结果。
+    again = test_client.post(f"/review/{matter_id}", json={"action": "approve"}, headers=headers)
+    assert again.status_code == 200
+    assert again.json()["elapsed_ms"] == 0
+    assert again.json()["findings_count"] == payload["findings_count"]
 
 
 def test_review_resume_across_new_service_instance(client, settings, monkeypatch):
@@ -181,31 +223,39 @@ def test_review_resume_across_new_service_instance(client, settings, monkeypatch
         ROOT / "examples" / "sample_procurement_contract.pdf",
         stance="乙方",
     )
-    assert response.status_code == 200
-    matter_id = response.json()["matter_id"]
-    assert response.json()["status"] == "awaiting_review"
+    assert response.status_code == 202
+    record = response.json()
+    task = _wait(test_client, record)
+    assert task["status"] == "awaiting_review"
+    matter_id = record["matter_id"]
 
     second = AnalyzeService(settings)
     monkeypatch.setattr(api_main, "service", second)
-    resumed = test_client.post(f"/review/{matter_id}", json={"action": "approve"})
+    headers = {"X-Matter-Token": record["token"]}
+    resumed = test_client.post(f"/review/{matter_id}", json={"action": "approve"}, headers=headers)
     assert resumed.status_code == 200
     assert resumed.json()["status"] == "completed"
     assert second.store.count_findings(matter_id) == resumed.json()["findings_count"]
-    assert test_client.get(f"/export/{matter_id}").status_code == 200
+    assert test_client.get(f"/export/{matter_id}", headers=headers).status_code == 200
 
 
 def test_reject_keeps_checkpoint_without_export(client):
     test_client, _svc = client
-    payload = _upload(test_client, ROOT / "examples" / "sample_service_contract.docx").json()
-    matter_id = payload["matter_id"]
-    rejected = test_client.post(f"/review/{matter_id}", json={"action": "reject", "comment": "API 驳回"})
+    record = _upload(test_client, ROOT / "examples" / "sample_service_contract.docx").json()
+    task = _wait(test_client, record)
+    matter_id = task["matter_id"]
+    headers = {"X-Matter-Token": record["token"]}
+    rejected = test_client.post(
+        f"/review/{matter_id}", json={"action": "reject", "comment": "API 驳回"}, headers=headers
+    )
     assert rejected.status_code == 200
     assert rejected.json()["status"] == "rejected"
     assert rejected.json()["docx_path"] == ""
-    assert test_client.get(f"/export/{matter_id}").status_code == 409
+    assert test_client.get(f"/export/{matter_id}", headers=headers).status_code == 409
 
 
 def test_unknown_matter_returns_404(client):
     test_client, _svc = client
     assert test_client.post("/review/matter-nope", json={"action": "approve"}).status_code == 404
     assert test_client.get("/export/matter-nope").status_code == 404
+    assert test_client.get("/tasks/task-nope").status_code == 404

@@ -1,0 +1,293 @@
+{
+  "generated_at": "2026-11-10T16:53:57.614658+00:00",
+  "engine": "mock",
+  "label_source": "self_review",
+  "note": "公开模板集当前只有 1 份公开劳动合同模板（非签署合同），因此测试集只有 1 个模板来源；协议支持多模板分集，但样本量不足以支撑任何准确率结论。所有标注均为自审，不是律师标注。",
+  "cases": [
+    {
+      "id": "dev-synthetic-service",
+      "split": "dev",
+      "source": "synthetic_service_template",
+      "sample": "examples/sample_service_contract.docx",
+      "note": "自造样例，仅用于开发集链路回归",
+      "label_source": "self_review",
+      "trace_id": "trace-matter-9a33d745ed",
+      "engine": "mock",
+      "elapsed_ms": 23349,
+      "counts": {
+        "findings": 4,
+        "risk_points": 4,
+        "merged_both": 4,
+        "legal_only": 0,
+        "commercial_only": 0,
+        "duplicates": 0,
+        "cited_findings": 4,
+        "strict_traceable": 4,
+        "uncited_findings": 0,
+        "expected_risk_clauses": 4,
+        "matched_risk_clauses": 4
+      },
+      "ratios": {
+        "strict_traceable_rate": 1.0,
+        "citation_coverage": 1.0,
+        "risk_clause_recall": 1.0
+      },
+      "gates": {
+        "G1": {
+          "pass": 4,
+          "fail": 0,
+          "skipped": 0
+        },
+        "G2": {
+          "pass": 4,
+          "fail": 0,
+          "skipped": 0
+        },
+        "G3": {
+          "pass": 4,
+          "fail": 0,
+          "skipped": 0
+        },
+        "G4": {
+          "pass": 4,
+          "fail": 0,
+          "skipped": 0
+        },
+        "G5": {
+          "pass": 4,
+          "fail": 0,
+          "skipped": 0
+        }
+      },
+      "gates_summary": {
+        "all_pass": 4,
+        "all_pass_cited": 4,
+        "all_pass_uncited": 0,
+        "cited": 4,
+        "uncited": 0,
+        "skipped_findings": 0
+      },
+      "citation_resolution": {
+        "uncited_before": 0,
+        "resolved": 0,
+        "refused": 0,
+        "tool_calls": 0,
+        "llm_calls": 0
+      },
+      "tokens": {
+        "prompt": 0,
+        "completion": 0
+      },
+      "cost_estimate_cny": 0.0,
+      "applicability_evaluated": false,
+      "uncertain_items": []
+    },
+    {
+      "id": "dev-synthetic-procurement",
+      "split": "dev",
+      "source": "synthetic_procurement_template",
+      "sample": "examples/sample_procurement_contract.pdf",
+      "note": "自造样例，仅用于开发集链路回归",
+      "label_source": "self_review",
+      "trace_id": "trace-matter-853b85c9dd",
+      "engine": "mock",
+      "elapsed_ms": 1872,
+      "counts": {
+        "findings": 5,
+        "risk_points": 5,
+        "merged_both": 5,
+        "legal_only": 0,
+        "commercial_only": 0,
+        "duplicates": 0,
+        "cited_findings": 5,
+        "strict_traceable": 5,
+        "uncited_findings": 0,
+        "expected_risk_clauses": 5,
+        "matched_risk_clauses": 4
+      },
+      "ratios": {
+        "strict_traceable_rate": 1.0,
+        "citation_coverage": 1.0,
+        "risk_clause_recall": 0.8
+      },
+      "gates": {
+        "G1": {
+          "pass": 5,
+          "fail": 0,
+          "skipped": 0
+        },
+        "G2": {
+          "pass": 5,
+          "fail": 0,
+          "skipped": 0
+        },
+        "G3": {
+          "pass": 5,
+          "fail": 0,
+          "skipped": 0
+        },
+        "G4": {
+          "pass": 5,
+          "fail": 0,
+          "skipped": 0
+        },
+        "G5": {
+          "pass": 5,
+          "fail": 0,
+          "skipped": 0
+        }
+      },
+      "gates_summary": {
+        "all_pass": 5,
+        "all_pass_cited": 5,
+        "all_pass_uncited": 0,
+        "cited": 5,
+        "uncited": 0,
+        "skipped_findings": 0
+      },
+      "citation_resolution": {
+        "uncited_before": 0,
+        "resolved": 0,
+        "refused": 0,
+        "tool_calls": 0,
+        "llm_calls": 0
+      },
+      "tokens": {
+        "prompt": 0,
+        "completion": 0
+      },
+      "cost_estimate_cny": 0.0,
+      "applicability_evaluated": false,
+      "uncertain_items": []
+    },
+    {
+      "id": "test-public-labor-template",
+      "split": "test",
+      "source": "public_labor_template",
+      "sample": "examples/real/labor_contract.docx",
+      "note": "公开劳动合同模板，不是签署合同；无律师标注，召回率不可计算",
+      "label_source": "self_review",
+      "trace_id": "trace-matter-472980e7e1",
+      "engine": "mock",
+      "elapsed_ms": 1296,
+      "counts": {
+        "findings": 1,
+        "risk_points": 1,
+        "merged_both": 1,
+        "legal_only": 0,
+        "commercial_only": 0,
+        "duplicates": 0,
+        "cited_findings": 1,
+        "strict_traceable": 1,
+        "uncited_findings": 0,
+        "expected_risk_clauses": 0,
+        "matched_risk_clauses": 0
+      },
+      "ratios": {
+        "strict_traceable_rate": 1.0,
+        "citation_coverage": 1.0,
+        "risk_clause_recall": null
+      },
+      "gates": {
+        "G1": {
+          "pass": 1,
+          "fail": 0,
+          "skipped": 0
+        },
+        "G2": {
+          "pass": 1,
+          "fail": 0,
+          "skipped": 0
+        },
+        "G3": {
+          "pass": 1,
+          "fail": 0,
+          "skipped": 0
+        },
+        "G4": {
+          "pass": 1,
+          "fail": 0,
+          "skipped": 0
+        },
+        "G5": {
+          "pass": 1,
+          "fail": 0,
+          "skipped": 0
+        }
+      },
+      "gates_summary": {
+        "all_pass": 1,
+        "all_pass_cited": 1,
+        "all_pass_uncited": 0,
+        "cited": 1,
+        "uncited": 0,
+        "skipped_findings": 0
+      },
+      "citation_resolution": {
+        "uncited_before": 0,
+        "resolved": 0,
+        "refused": 0,
+        "tool_calls": 0,
+        "llm_calls": 0
+      },
+      "tokens": {
+        "prompt": 0,
+        "completion": 0
+      },
+      "cost_estimate_cny": 0.0,
+      "applicability_evaluated": false,
+      "uncertain_items": [
+        {
+          "clause_id": null,
+          "question": "法条与条款是否语义相关（G4 适用性）",
+          "why_uncertain": "当前 G4 只做规则/存在性校验，未实现语义核验；本轮明确不评测"
+        }
+      ]
+    }
+  ],
+  "splits": {
+    "dev": {
+      "cases": 2,
+      "templates": [
+        "synthetic_procurement_template",
+        "synthetic_service_template"
+      ],
+      "findings": 9,
+      "risk_points": 9,
+      "merged_both": 9,
+      "legal_only": 0,
+      "commercial_only": 0,
+      "duplicates": 0,
+      "strict_traceable_rate": 1.0,
+      "citation_coverage": 1.0,
+      "risk_clause_recall": 0.8889,
+      "uncited_findings": 0,
+      "g4_skipped": 0,
+      "applicability_evaluated": false,
+      "avg_elapsed_ms": 12610.5,
+      "all_pass_strict": 9,
+      "total_cost_estimate_cny": 0
+    },
+    "test": {
+      "cases": 1,
+      "templates": [
+        "public_labor_template"
+      ],
+      "findings": 1,
+      "risk_points": 1,
+      "merged_both": 1,
+      "legal_only": 0,
+      "commercial_only": 0,
+      "duplicates": 0,
+      "strict_traceable_rate": 1.0,
+      "citation_coverage": 1.0,
+      "risk_clause_recall": null,
+      "uncited_findings": 0,
+      "g4_skipped": 0,
+      "applicability_evaluated": false,
+      "avg_elapsed_ms": 1296.0,
+      "all_pass_strict": 1,
+      "total_cost_estimate_cny": 0
+    }
+  }
+}

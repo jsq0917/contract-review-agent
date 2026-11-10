@@ -196,6 +196,13 @@ class ReviewState(TypedDict, total=False):
     # 本次审查是否使用精排。写进 state 而不是读全局设置：同一进程可能并发跑不同请求，
     # 且中断恢复后要求这次审查的参数仍然可追溯。
     rerank: bool
+    # 请求级 trace：matter 内唯一，跨进程恢复时沿用同一个值。
+    trace_id: str
+    model_name: str
+    prompt_version: str
+    corpus_version: str
+    # 本次跑哪几路审查（legal / commercial）；单路对照实验会把它收成一个。
+    channels: list[str]
 
     parsed: dict[str, Any]
     clauses: list[dict[str, Any]]
@@ -203,6 +210,10 @@ class ReviewState(TypedDict, total=False):
     evidence: Annotated[list[Evidence], merge_evidence]
     verifications: Annotated[list[Verification], merge_verifications]
     warnings: Annotated[list[str], add_warnings]
+    # 每次 LLM / 工具调用的治理信息；只增不减。
+    llm_calls_meta: Annotated[list[dict[str, Any]], operator.add]
+    tool_calls: Annotated[list[dict[str, Any]], operator.add]
+    citation_resolutions: Annotated[list[dict[str, Any]], operator.add]
 
     report: dict[str, Any]
     docx_path: str
