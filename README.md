@@ -129,6 +129,8 @@ uv run python eval/run_citation_resolution_eval.py # 引用补证前后对照（
 
 CI 见 [.github/workflows/ci.yml](.github/workflows/ci.yml)：`offline` job 执行 `uv sync --frozen` + `compileall` + `pytest -m "not live"`；`docker` job 单独执行镜像构建。工具调用、HITL、G4/G5 三态、严格溯源与 reducer 反向用例都在离线回归里；live API、Docker、GPU 属于独立命令与独立报告。
 
+最近一次 main 推送（commit `bd4eb42`，run 42937979392）实测：`offline` job **141 passed, 1 skipped in 26.35s**，`docker` job 通过。跳过的是语料构建幂等测试——它需要仓库外的法条原文，Linux runner 没有这些文件，测试内写明跳过原因；本地具备外部语料时同一套测试为 142 passed。
+
 ### 1.6 mock 与真实 API 的区别
 
 | 维度 | `engine=mock` | `engine=api` |
