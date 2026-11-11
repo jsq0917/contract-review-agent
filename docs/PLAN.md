@@ -514,4 +514,40 @@ B 组 `LEXFLOW_STATUTE_TOP_K=10`。6 份固定样本：`examples/sample_service_
   它是链路一致性指标，不是法律准确率。
 - **按条款类型预过滤未做**：只对照了候选法条数量（3 vs 10），没有按条款类型先过滤候选法条。
 
+## 11. 交付补齐阶段（2026-11-11）
+
+本轮目标不是加功能，而是把「能跑」补成「可交付、可复现、边界清楚」。工作流固定为：
+
+1. 先改代码 + 负向测试（上传边界、任务取消、token、坏 JSON、伪造引文）；
+2. 再跑离线回归与评测，数字写回 README；
+3. 最后提交、rebase、push；不跑付费 API、不改样本、不调参凑指标。
+
+### 11.1 工作区与命令
+
+| 目的 | 命令 | 产物 |
+|---|---|---|
+| 离线回归（CI 同款） | `uv run pytest -q -m "not live"` | 142 passed, 1 deselected |
+| 编译检查 | `uv run python -m compileall -q lexflow eval tests scripts` | 无输出即通过 |
+| 示例/合成/检索评测 | `uv run python eval/run_eval.py`、`run_synthetic_eval.py`、`run_retrieval_eval.py` | `eval/results.*`、`synthetic_results.*`、`retrieval_results.*` |
+| 独立评测协议 | `uv run python eval/run_protocol_eval.py` | `eval/protocol_results.*` |
+| 单路/双路对照 | `uv run python eval/run_dual_eval.py` | `eval/dual_results.*`、`dual_unique_points.csv` |
+| 引用补证对照 | `uv run python eval/run_citation_resolution_eval.py` | `eval/citation_resolution_results.*` |
+| live（可选，未执行） | `$env:LEXFLOW_LIVE_API=1; uv run pytest -q -m live` | 单独报告，不混入离线通过率 |
+
+### 11.2 本轮新增的可执行能力
+
+- `/analyze` 任务化：202 + `task_id`；`/tasks/{id}` 查询、取消、有限重试、`Idempotency-Key`；长任务期间 `/health` 不被阻塞。
+- 上传边界：扩展名白名单、10 MiB 限制、空文件拒绝、服务端生成路径、临时文件 finally 清理。
+- matter token：`/review`、`/export`、`/tasks/*` 校验归属；导出支持 `?token=`。
+- 引用补证：`resolve_citations` + Function Call + MCP 子进程；条号必须存在、引文必须是原文连续子串；不写 `rule_id`。
+- 请求级 trace：`artifacts/<matter>/trace.jsonl`，脱敏后落盘；任务进度直接读 trace。
+
+### 11.3 本轮明确没做的事
+
+- **没有重跑真实 API**：§4.6/§4.7 的 API 数字标为历史记录，当前 commit 不可复现；重跑需要用户批准费用。
+- **没有 per-finding 真实 token/成本**：离线 mock 的 token 恒为 0，`citation_resolution_results` 只能证明覆盖率与工具步数，不能证明费用；「补证成本可控」不作宣称。
+- **没有做语义适用性（G4 之外的「法条是否适用」）**：仍只校验条号存在与引文真实。
+- **取消是协作式的**：只在任务开始前与图返回后生效，不中断正在执行的 LLM 请求。
+
+
 

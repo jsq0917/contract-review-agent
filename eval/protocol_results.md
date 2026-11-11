@@ -1,6 +1,6 @@
 # 独立评测协议结果
 
-- 生成时间：2026-11-10T16:53:57.614658+00:00
+- 生成时间：2026-11-11T00:12:32.808391+00:00
 - 引擎：`mock`
 - 标注来源：`self_review`（自审，非律师标注）
 - **语义适用性（法条与条款是否真正相关）未评测**：G4 只做规则/存在性校验，产物中 `applicability_evaluated=false`。
@@ -9,16 +9,16 @@
 
 | split | 模板数 | 模板来源 | findings | 风险点 | 两路共有 | 法务独有 | 商务独有 | 严格溯源率 | 引用覆盖率 | 条款级召回 | G4 skipped | 平均耗时(ms) | 成本(CNY) |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| dev | 2 | synthetic_procurement_template, synthetic_service_template | 9 | 9 | 9 | 0 | 0 | 100.00% | 100.00% | 88.89% | 0 | 12610.5 | 0 |
-| test | 1 | public_labor_template | 1 | 1 | 1 | 0 | 0 | 100.00% | 100.00% | null | 0 | 1296.0 | 0 |
+| dev | 2 | synthetic_procurement_template, synthetic_service_template | 9 | 9 | 9 | 0 | 0 | 100.00% | 100.00% | 88.89% | 0 | 29284.5 | 0 |
+| test | 1 | public_labor_template | 1 | 1 | 1 | 0 | 0 | 100.00% | 100.00% | null | 0 | 1814.0 | 0 |
 
 ## 逐样本
 
 | id | split | findings | 风险点 | 法务独有 | 商务独有 | 严格溯源 | 引用覆盖 | 召回 | 耗时(ms) | trace_id |
 |---|---|---|---|---|---|---|---|---|---|---|
-| dev-synthetic-service | dev | 4 | 4 | 0 | 0 | 100.00% | 100.00% | 100.00% | 23349 | `trace-matter-9a33d745ed` |
-| dev-synthetic-procurement | dev | 5 | 5 | 0 | 0 | 100.00% | 100.00% | 80.00% | 1872 | `trace-matter-853b85c9dd` |
-| test-public-labor-template | test | 1 | 1 | 0 | 0 | 100.00% | 100.00% | null | 1296 | `trace-matter-472980e7e1` |
+| dev-synthetic-service | dev | 4 | 4 | 0 | 0 | 100.00% | 100.00% | 100.00% | 53733 | `trace-matter-a3b18dd6db` |
+| dev-synthetic-procurement | dev | 5 | 5 | 0 | 0 | 100.00% | 100.00% | 80.00% | 4836 | `trace-matter-a75edc622a` |
+| test-public-labor-template | test | 1 | 1 | 0 | 0 | 100.00% | 100.00% | null | 1814 | `trace-matter-1867df5074` |
 
 ## 限制
 

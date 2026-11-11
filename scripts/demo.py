@@ -105,7 +105,7 @@ def main(argv: list[str] | None = None) -> int:
     if not findings:
         print("（未命中风险规则）")
     else:
-        print("说明：法务、商务两路审查独立输出，同一条款可能各报一次；本阶段未做跨路合并。")
+        print("说明：法务、商务两路已按 (clause_id, risk_type, 引文) 合并；同一条款的不同风险类型或不同引文仍会分列。")
         print(BAR)
     reviewer_label = {"legal": "法务", "commercial": "商务"}
     for index, item in enumerate(findings, 1):

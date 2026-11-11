@@ -211,6 +211,7 @@ def _resolve_one(
                 {
                     **response.meta.as_dict(),
                     "node": "resolve_citations",
+                    "finding_id": finding.finding_id,
                     "clause_id": finding.clause_id,
                     "reviewer": finding.reviewer,
                 }

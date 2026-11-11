@@ -1,52 +1,53 @@
 [
   {
     "file": "examples\\real\\labor_contract.docx",
-    "engine": "api",
+    "engine": "mock",
     "chars": 795,
     "clauses": 6,
     "avg_clause_chars": 132.5,
-    "findings": 12,
-    "traceable": 12,
+    "findings": 1,
+    "traceable": 1,
     "traceability_rate": 1.0,
-    "cited": 5,
-    "uncited": 7,
-    "citation_coverage": 0.4167,
-    "all_gates_pass": 0,
-    "all_gates_pass_rate": 0.0,
-    "all_gates_pass_cited": 0,
-    "gates_skipped_findings": 5,
-    "risk_points": 9,
-    "merged_both": 9,
+    "cited": 1,
+    "uncited": 0,
+    "citation_coverage": 1.0,
+    "all_gates_pass": 1,
+    "all_gates_pass_rate": 1.0,
+    "all_gates_pass_cited": 1,
+    "gates_skipped_findings": 0,
+    "risk_points": 1,
+    "merged_both": 1,
     "legal_only": 0,
     "commercial_only": 0,
-    "duplicate_findings": 3,
+    "duplicate_findings": 0,
     "gate_counts": {
       "G1": {
-        "pass": 5,
-        "total": 12
+        "pass": 1,
+        "total": 1
       },
       "G2": {
-        "pass": 5,
-        "total": 12
+        "pass": 1,
+        "total": 1
       },
       "G3": {
-        "pass": 5,
-        "total": 12
+        "pass": 1,
+        "total": 1
       },
       "G4": {
-        "pass": 0,
-        "total": 12
+        "pass": 1,
+        "total": 1
       },
       "G5": {
-        "pass": 12,
-        "total": 12
+        "pass": 1,
+        "total": 1
       }
     },
     "llm_calls": 12,
-    "prompt_tokens": 8848,
-    "completion_tokens": 20058,
-    "cost_cny": 0.17815999999999999,
-    "elapsed_ms": 152969,
-    "retrieval_mode": "hybrid"
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "cost_cny": 0.0,
+    "elapsed_ms": 4686,
+    "retrieval_mode": "hybrid",
+    "trace_id": "trace-matter-c264dc06ec"
   }
 ]

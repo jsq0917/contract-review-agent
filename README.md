@@ -124,6 +124,7 @@ uv run python eval/run_synthetic_eval.py
 uv run python eval/run_retrieval_eval.py       # 三档检索评测（dense / hybrid / hybrid+rerank）
 uv run python eval/run_protocol_eval.py        # 独立评测协议：dev/test 分集、分指标、自审标注单列
 uv run python eval/run_dual_eval.py            # 单路/双路对照 + 独有贡献 CSV
+uv run python eval/run_citation_resolution_eval.py # 引用补证前后对照（mock + citation-blind，无付费调用）
 ```
 
 CI 见 [.github/workflows/ci.yml](.github/workflows/ci.yml)：`offline` job 执行 `uv sync --frozen` + `compileall` + `pytest -m "not live"`；`docker` job 单独执行镜像构建。工具调用、HITL、G4/G5 三态、严格溯源与 reducer 反向用例都在离线回归里；live API、Docker、GPU 属于独立命令与独立报告。
@@ -168,13 +169,13 @@ CI 见 [.github/workflows/ci.yml](.github/workflows/ci.yml)：`offline` job 执�
 | `LEXFLOW_API_URL` | `http://127.0.0.1:8000` | Streamlit 访问的 API 地址 |
 | `LEXFLOW_LOG_LEVEL` | `INFO` | JSON 行日志级别；demo 默认压到 `ERROR`，可 `--show-logs` 恢复 |
 | `LEXFLOW_FALLBACK_MODELS` | 空 | 备用模型列表（逗号分隔）；主模型重试耗尽后按顺序切换 |
-| `LEXFLOW_FALLBACK_API_KEY` | 空 | 备用 API Key，只在鉴权/额度类失败时换密钥重试 |
+| `LEXFLOW_FALLBACK_API_KEY` | 空 | 仅用于 `LEXFLOW_FALLBACK_MODELS` 的备用 Key；与主模型绑定，不会在主模型上换 Key 重试。401/400 不重试 |
 | `LEXFLOW_LLM_CONNECT_TIMEOUT_S` / `LEXFLOW_LLM_READ_TIMEOUT_S` | `10` / `120` | 连接与读取超时（秒） |
 | `LEXFLOW_LLM_TOTAL_DEADLINE_S` | `180` | 单次调用总 Deadline；到点抛 `timeout`，不再继续重试 |
 | `LEXFLOW_LLM_MAX_RETRIES` | `2` | 仅对 retriable 错误（429/5xx/超时/坏 JSON）做指数退避重试；401/400 不重试 |
 | `LEXFLOW_LLM_MAX_CONCURRENCY` | `4` | 单进程内并发调用上限（信号量） |
 | `LEXFLOW_RESOLVE_CITATIONS` | `true` | 是否对未引用 finding 走 Function Call + MCP 补证 |
-| `LEXFLOW_RESOLVE_MAX_ROUNDS` / `LEXFLOW_RESOLVE_MAX_TOOL_STEPS` | `2` / `4` | 补证最多两轮模型调用、四步工具调用 |
+| `LEXFLOW_RESOLVE_MAX_ROUNDS` / `LEXFLOW_RESOLVE_MAX_TOOL_STEPS` | `2` / `4` | 补证最多 2 轮工具调用（对应最多 3 次模型调用：2 次带工具 + 1 次收尾）、4 步工具调用 |
 | `LEXFLOW_RESOLVE_MAX_FINDINGS` | `8` | 单次审查最多补证多少条 finding，超出部分如实记为 `skipped_budget` |
 | `LEXFLOW_MCP_ENABLED` / `LEXFLOW_MCP_TIMEOUT_S` | `true` / `20` | 是否用真实 MCP 子进程暴露工具；启动失败时降级到进程内本地工具运行时 |
 | `LEXFLOW_MAX_UPLOAD_BYTES` | `10485760` | 上传大小上限（默认 10 MiB） |
@@ -218,7 +219,7 @@ START → parse → segment_clauses → ┬ review_legal
 - checkpointer：`SqliteSaver`，与业务表**同一个 SQLite 文件、不同表**；中断后换进程仍可按 `matter_id` 恢复。
 - 证据 reducer 按 `law_name#article_no` 去重，保留更高分；findings 按 `finding_id` 去重。
 - `assemble_report` / `export_docx` 的耗能在图返回后由 service 写回，避免中断恢复后 metrics 缺尾节点。
-- `resolve_citations` 只处理 `law_name/article_no` 为空的 finding，函数调用最多两轮、工具步数最多四步；它只补法条字段，**不设置 `rule_id`**，因此 G4 不会因补证成功自动变成 pass。
+- `resolve_citations` 只处理 `law_name/article_no` 为空的 finding；每条最多 2 轮工具调用、总计最多 3 次模型调用（2 次带工具 + 1 次收尾），工具步数最多 4 步。它只补法条字段，**不设置 `rule_id`**，因此 G4 不会因补证成功自动变成 pass。
 
 ### 2.2 目录结构
 
@@ -453,27 +454,27 @@ mock 的风险判定是显式规则表（代码同源：`lexflow/review/rules.py
 
 | 项目 | 实测结果 | 命令 / 来源 | 性质 |
 |---|---|---|---|
-| 单元/集成测试 | `142 passed, 1 deselected, 1 warning` | `uv run pytest -q -m "not live"`（2026-11-11 复核；`live` 1 条默认跳过） | 真实执行 |
-| 离线演示（热缓存） | `matter-9b25b21a2b`；8 findings（合并前口径）；分析 17835 ms + 确认/导出 70 ms；docx 38564 B；节点合计 1677 ms；`hybrid/cuda`；`llm_calls=14`、tokens 0/0 | `uv run python scripts/demo.py` | mock + 合成示例 |
-| 离线演示（空数据目录、空向量缓存） | `matter-66e706190c`；8 findings（合并前口径）；分析 34670 ms（含首次索引）；确认/导出正常 | 设 `LEXFLOW_DATA_DIR/ARTIFACTS_DIR/DB/EMBED_CACHE` 到全新临时目录后跑 demo | mock + 冷启动 |
+| 单元/集成测试 | `142 passed, 1 deselected, 1 warning` | `uv run pytest -q -m "not live"`，在 commit **b921d72**（代码与测试）上运行；`live` 1 条默认跳过（2026-11-11） | 真实执行 |
+| 离线演示（2026-11-11 复核） | `matter-668ec857ee`；**4 findings**（已跨路合并）；分析 32423 ms（含检索冷启动）+ 确认/导出 138 ms；docx 38556 B；节点合计 3323 ms；`hybrid/cpu`；`llm_calls=14`、tokens 0/0 | `uv run python scripts/demo.py` | mock + 合成示例 |
+| 离线演示（历史，2026-11-07 合并前口径） | `matter-66e706190c`；8 findings（合并前口径）；分析 34670 ms（含首次索引）；确认/导出正常 | 设 `LEXFLOW_DATA_DIR/ARTIFACTS_DIR/DB/EMBED_CACHE` 到全新临时目录后跑 demo | mock + 冷启动，旧版本 |
 | 示例 DOCX 评测 | 条款 7/7、风险召回 **4/4**、findings **4**、溯源 4/4、五闸全过 4/4；`bm25-only` | `uv run python eval/run_eval.py` | mock + 自造样本 |
 | 示例 PDF 评测 | 条款 7/7、风险召回 **4/5**、findings **5**、溯源 5/5、五闸全过 5/5；`bm25-only` | 同上 | mock + 自造样本 |
-| HITL 第 1 次进程 | `pid 83656`、`matter-ffbe777ef2`、`awaiting_review`、findings 10、18858 ms、`has_interrupt=true` | `uv run python scripts/hitl_demo.py start` | mock |
-| HITL 第 2 次进程 | `pid 84840`（新进程）、`completed`、findings 10、208 ms、docx **38740 B** | `uv run python scripts/hitl_demo.py resume` | mock |
+| HITL 第 1 次进程（旧版本，合并前） | `pid 83656`、`matter-ffbe777ef2`、`awaiting_review`、findings 10、18858 ms、`has_interrupt=true` | `uv run python scripts/hitl_demo.py start` | mock，历史记录 |
+| HITL 第 2 次进程（旧版本，合并前） | `pid 84840`（新进程）、`completed`、findings 10、208 ms、docx **38740 B** | `uv run python scripts/hitl_demo.py resume` | mock，历史记录 |
 | HITL 复验（跨路合并后） | `matter-16a11418a6`、`awaiting_review → completed`、findings **5**、`new_process=true`、docx **38549 B** | `scripts/hitl_demo.py start` → `resume`（2026-11-07 复核） | mock |
 | 节点耗时 | parse 259 / segment 7 / review_commercial 647 / review_legal 634 / bind_evidence 349 / verify 0 / assemble_report 13 / export_docx 188 ms；合计 2097 ms | `uv run python -m lexflow.cli timeline matter-ffbe777ef2` | 真实计时 |
-| CLI mock 端到端 | `matter-831b2b0fc7`、`completed`、findings 8、14388 ms、`hybrid/cuda`、节点合计 1415 ms | `uv run python -m lexflow.cli analyze examples/sample_service_contract.docx --engine mock --auto-approve` | mock |
+| CLI mock 端到端（旧版本，合并前） | `matter-831b2b0fc7`、`completed`、findings 8、14388 ms、`hybrid/cuda`、节点合计 1415 ms；当前版本同一示例为 findings 4（见 `eval/results.md`） | `uv run python -m lexflow.cli analyze examples/sample_service_contract.docx --engine mock --auto-approve` | mock，历史记录 |
 | 合成集 v1（12 份 / 18 处） | 条款召回 **18/18**、precision **18/18**、findings 18、溯源 18/18、五闸全过 18/18 | `uv run python eval/run_synthetic_eval.py --gold data/synthetic_v1/gold.jsonl --out-csv eval/synthetic_results_v1_after.csv --out-md eval/synthetic_results_v1_after.md --label "v1-after"` | 合成数据 |
 | 合成集 v2（18 份 / 30 处） | 条款召回 **30/30**、precision **30/30**、findings 30、溯源 30/30、五闸全过 30/30 | `uv run python eval/run_synthetic_eval.py` | 合成数据 |
 | 种子缺陷（五闸双向） | 8 类植入错误 **281/281** 检出（20 份合同 / 39 条 findings）；对照组误报 **0/39** | `uv run python eval/seeded_defect.py` | mock + **程序植入**，非真实错案 |
-| API 引擎（真实模型） | docx：召回 **3/4**、findings 8、严格溯源 8/8、引用 4/8、五闸 0/8、¥0.1656；pdf：召回 **5/5**、findings 11、严格溯源 11/11、引用 1/11、五闸 0/11、¥0.1568。五闸为 0 是因为 G4 在 API 路径固定 skipped（不校验法条适用性），不是闸门失效 | `uv run python eval/run_eval.py --engine api` | **真实 API 单次**，样本 2，详见 §4.6 |
-| 真实劳动合同冒烟 | mock **1** 条 vs api **12** 条；api 严格溯源 **12/12**、引用 5/12、五闸 0/12、9 个风险点（两路全部重合）、¥0.1782、153 s | `uv run python eval/run_contract_smoke.py --files examples/real/labor_contract.docx --engine api` | 真实合同模板 1 份，无 gold，详见 §4.7 |
+| API 引擎（历史，不可由当前 commit 复现） | docx：召回 **3/4**、findings 8、严格溯源 8/8、引用 4/8、五闸 0/8、¥0.1656；pdf：召回 **5/5**、findings 11、严格溯源 11/11、引用 1/11、五闸 0/11、¥0.1568。五闸为 0 是因为 G4 在 API 路径固定 skipped（不校验法条适用性），不是闸门失效 | `uv run python eval/run_eval.py --engine api` | **真实 API 单次**，样本 2，详见 §4.6 的历史横幅 |
+| 真实劳动合同冒烟（mock 可复现 / api 历史） | mock **1** 条 vs api **12** 条；api 严格溯源 **12/12**、引用 5/12、五闸 0/12、9 个风险点（两路全部重合）、¥0.1782、153 s（api 行为不可由当前 commit 复现） | `uv run python eval/run_contract_smoke.py --files examples/real/labor_contract.docx --engine {mock|api}` | 真实合同模板 1 份，无 gold，详见 §4.7 |
 | 法条语料 | 1465 条（1260 / 107 / 98）；两次构建 SHA256 相同；劳动法 107 条归一化、正文替换 1018 字、残留 0 | `uv run python scripts/build_corpus.py`（连续两次） | 真实法条 |
 | 检索评测对齐 | 4 个文件 35/95/125/200；按 question 去重 330；剔除 5 条空标注；纳入 **325** 题；gold 条号 **626** | `uv run python eval/run_retrieval_eval.py` | 外部标注 |
 | 检索三档（评测脚本路径 GPU） | dense/hybrid/rerank 条号召回@5 = **405/626、398/626、439/626**；@10 = **468/626、471/626、501/626**；问题命中@5 均 325/325 | 同上，见 `eval/retrieval_results.md` | 外部标注 |
 | CPU 容器 `/health` | 首次 `indexing`、`vector_ready=false`；约 13s 后 `hybrid`、`vector_ready=true`、`embedding_device=cpu`；articles 1465 | `LEXFLOW_API_PORT=18000 docker compose up -d api` + `curl /health`（阶段 4 记录） | 容器实测 |
-| CPU 容器 `/analyze` | `awaiting_review`、findings 8、`elapsed_ms=7498`、`hybrid/cpu`、verify 24/24 | 同上（阶段 4 记录） | 容器实测 |
-| GPU 容器 | 构建成功；容器内 `torch.cuda.is_available()=True`（RTX 4060），但 bge-m3 加载 OOM → `embedding_device=null`、`retrieval_mode=bm25-only`；`/analyze` findings 8、`elapsed_ms=463`、`retrieval_device=n/a`；review/export 正常 | 见 [§5.3](#53-gpu-容器最终结论) | 容器实测，GPU 未启用 |
+| CPU 容器 `/analyze`（旧版本，合并前） | `awaiting_review`、findings 8、`elapsed_ms=7498`、`hybrid/cpu`、verify 24/24 | 同上（阶段 4 记录） | 容器实测，历史记录 |
+| GPU 容器（旧版本，合并前） | 构建成功；容器内 `torch.cuda.is_available()=True`（RTX 4060），但 bge-m3 加载 OOM → `embedding_device=null`、`retrieval_mode=bm25-only`；`/analyze` findings 8、`elapsed_ms=463`、`retrieval_device=n/a`；review/export 正常 | 见 [§5.3](#53-gpu-容器最终结论) | 容器实测，GPU 未启用，历史记录 |
 
 
 - mock 下 `llm_calls=14`、`prompt_tokens=0`、`completion_tokens=0`、`cost_estimate_cny=0.0`（未调用模型，token 与成本是真实的 0）。
@@ -511,12 +512,12 @@ mock 的风险判定是显式规则表（代码同源：`lexflow/review/rules.py
 
 1. 无 API key、全程离线，一条命令跑完「上传 → 分析 → 风险表 → 确认 → docx → 指标」：`scripts/demo.py`，真实输出见 [docs/DEMO.md](docs/DEMO.md)。
 2. 跨进程恢复：`hitl_demo.py start` 停在 `awaiting_review`，新进程 `resume` 从 SQLite checkpoint 完成导出（pid 83656 → 84840，docx 38740 B）。
-3. 测试全绿：`uv run pytest -q -m "not live"` → **142 passed, 1 deselected, 1 warning**（2026-11-11 复核；含任务化 `/analyze`、`/tasks` 取消/重试/幂等、上传边界、matter token、MCP 真实子进程、trace 与 Provider 治理）。测试数以 §4.1 的最终回归表为准，本节只复述同一 commit 的结果。live API 用 `uv run pytest -q -m live` 单独跑，不与离线通过率混写。
+3. 测试全绿：`uv run pytest -q -m "not live"` → **142 passed, 1 deselected, 1 warning**，运行于 commit **b921d72**（含任务化 `/analyze`、`/tasks` 取消/重试/幂等、上传边界、matter token、MCP 真实子进程、trace 与 Provider 治理）。README 的本次修订提交只改文档与评测产物、不改代码与测试，因此该结果仍对应当前可执行代码。live API 用 `uv run pytest -q -m live` 单独跑，不与离线通过率混写。
 4. 法条语料 1465 条，构建幂等（两次 SHA256 相同）；劳动法康熙部首归一化 1018 字、残留 0。
 5. 合成集 v1 18/18、v2 30/30（注入式 gold），并明确这是“注入风险是否被检出”，不是法律效果。
 6. 检索评测 325 题 / 626 个 gold 条号，三档条号召回@5 405/626、398/626、439/626，且 CPU/GPU 召回一致。
 7. 本机 GPU 可用性有分叉：`torch 2.14.1+cu130`、RTX 4060 Laptop 8187 MB；直接调用 embedder 的脚本路径走 `cuda`，service 链路本次 CUDA 编码报 `cudaErrorMemoryAllocation` 降级 `bm25-only`，交付按 CPU 运行 service（见 [§2.6](#26-检索与降级)、[§4.5](#45-top-k-对照实验与结论2026-11)）。
-8. CPU Docker 容器可启动并通过 `/health` 与 `/analyze`（articles 1465、findings 8、`hybrid/cpu`）。
+8. CPU Docker 容器可启动并通过 `/health` 与 `/analyze`（articles 1465、findings 8、`hybrid/cpu`；该次运行在跨路合并前，当前代码的示例合同为 4 findings）。
 
 ### 4.4 不可外推项（面试时必须单列）
 
@@ -587,6 +588,8 @@ mock 的风险判定是显式规则表（代码同源：`lexflow/review/rules.py
 
 ### 4.6 mock 与真实 API 对照（2026-11-10）
 
+> **⚠ 历史记录，不可由当前 commit 复现。** 下表 API 列来自 2026-11-10 的运行，当时还没有 `resolve_citations` 节点（当前默认开启会改变引用覆盖率），对应 matter 目录也没有 `trace.jsonl`，无法回放核验。保留仅作当时口径对照；重跑真实 API 需要付费（未获批准，未执行）。mock 列可由当前代码重跑，结果见 `eval/results.md`。
+
 命令：`uv run python eval/run_eval.py --engine api`（结果落 `eval/results_api.csv`、`eval/results_api.md`）。
 
 | 指标 | mock（docx / pdf） | API（docx / pdf） |
@@ -617,14 +620,16 @@ mock 的风险判定是显式规则表（代码同源：`lexflow/review/rules.py
 
 ### 4.7 真实劳动合同冒烟（2026-11-10）
 
+> **⚠ 下表 API 行为历史记录，不可由当前 commit 复现。** 该 matter 目录缺少 `trace.jsonl`，且当前代码新增的 `resolve_citations` 会改变引用率；重跑需要付费 API（未获批准，未执行）。mock 行已于 2026-11-11 用当前 commit 复核，4.7 s（见下）。
+
 样本：`examples/real/labor_contract.docx`（795 字 / 6 条款），来自本地一份公开劳动合同模板（**模板，不是签署合同**），含多处明显违法条款。**这是仓库里唯一的非合成、非示例合同**，用于验证「管线在没见过的文档上会不会退化」——这类指标不需要 gold。
 
 命令：`uv run python eval/run_contract_smoke.py --files examples/real/labor_contract.docx --engine {mock|api}`
 
 | 引擎 | findings | 去重后风险点 | 严格溯源 | 引用 / 未引用 | 五闸全过 | 成本 | 耗时 |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| mock | **1** | 1 | 1/1 | 1/0 | 1/1 | 0 | 22.3 s（含模型加载） |
-| api | **12** | **9**（3 条重复） | **12/12** | 5/7 | **0/12** | ¥0.1782 | 153 s |
+| mock（2026-11-11 复核） | **1** | 1 | 1/1 | 1/0 | 1/1 | 0 | 4.7 s |
+| api（历史记录，不可复现） | **12** | **9**（3 条重复） | **12/12** | 5/7 | **0/12** | ¥0.1782 | 153 s |
 
 **结论一：规则表是领域绑定的。** 9 条 mock 规则是按商务合同写的（付款、违约金上限、解除、管辖、保密、不可抗力、责任上限、验收、交付），遇到劳动合同只命中 1 条。真实模型在同一份文档上报出 12 条、去重后 9 个风险点，覆盖：
 
@@ -679,6 +684,25 @@ mock 的风险判定是显式规则表（代码同源：`lexflow/review/rules.py
 - 合并键要求 `(clause_id, risk_type, 引文)` 三者一致，不会把两个不同风险塞进同一条 issue、只挂一份引文；`risk_type` 不同的重复条目保持分列，代价是同一句话可能有两条措辞不同的 finding。
 - 逐条独有贡献（本批为空）仍写入 `eval/dual_unique_points.csv`，每行带 `clause_id`、原文引文与 `risk_types`，便于换 API 引擎后直接对比。
 
+### 4.10 引用补证离线对照（2026-11-11）
+
+命令：`uv run python eval/run_citation_resolution_eval.py`；产物 `eval/citation_resolution_results.json` / `.md`。不调用付费 API。
+
+做法：确定性 mock 先生成 findings，再用 citation-blind 包装层抹掉 `law_name/article_no/cited_quote/citation_reason/rule_id`，模拟真实 API「一条都不引」的最坏输入；分别关闭/开启 `resolve_citations` 跑同一份合同。
+
+| case | 模式 | findings | 引用/未引用 | 引用覆盖率 | 补证 resolved/refused | 工具步数 | 补证耗时 ms | 总耗时 ms |
+|---|---|---:|---|---:|---|---:|---:|---:|
+| dev-synthetic-service | off | 4 | 0/4 | 0.00 | 0/0 | 0 | — | 842 |
+| dev-synthetic-service | on | 4 | 4/0 | **1.00** | 4/0 | 8 | 811 | 1117 |
+| dev-synthetic-procurement | off | 5 | 0/5 | 0.00 | 0/0 | 0 | — | 780 |
+| dev-synthetic-procurement | on | 5 | 5/0 | **1.00** | 5/0 | 10 | 903 | 1232 |
+| test-public-labor-template | off | 1 | 0/1 | 0.00 | 0/0 | 0 | — | 324 |
+| test-public-labor-template | on | 1 | 1/0 | **1.00** | 1/0 | 2 | 743 | 1097 |
+
+- 每条形最多 3 次模型调用、2 步工具调用（工具体系固定流程），补证后条号都在语料中、引文都是法条原文连续子串；**这不等于「法条适用」**，适用性仍未评测。
+- **per-finding token 与成本：不可得。** mock 的 token 恒为 0、成本为 `null`，逐条明细里的 0 只是「没有真实模型调用」，不能当作真实 API 的 token/费用；真实 per-finding token、补证导致的费用增量与延迟分布需要付费 API，未执行、未获批准。因此「补证成本可控」**不作为可宣称能力**，当前只宣称「有轮次/步数/条数上限，且拒引可审计」。
+- 离线可证明的是：在「上游零引用」这一最坏输入下，补证能把引用覆盖率从 0 恢复到 100%（3/3 个 case）；工具步数与耗时可复算。
+
 ---
 
 ## 5. Docker 与 GPU
@@ -720,7 +744,7 @@ docker compose config --quiet
 - CPU 容器冒烟（阶段 4 重建镜像时镜像 `lexflow:0.1.0` 为 5.13GB；阶段 5 GPU 构建后同一 tag 为 4.23GB）；
   - 首次 `/health`：`indexing`、`vector_ready=false`、`embedding_device=null`；
   - 约 13s 后：`hybrid`、`vector_ready=true`、`vector_backend=cache`、`embedding_device=cpu`、articles 1465；
-  - 容器内 `/analyze`（mock，docx）：`awaiting_review`、findings 8、`elapsed_ms=7498`、`metrics.retrieval_mode=hybrid`、`retrieval_device=cpu`，verify 24/24；
+  - 容器内 `/analyze`（mock，docx，旧版本合并前）：`awaiting_review`、findings 8、`elapsed_ms=7498`、`metrics.retrieval_mode=hybrid`、`retrieval_device=cpu`，verify 24/24；
   - 冒烟结束后 `docker compose down`。
 - 宿主机模型目录可用 `LEXFLOW_MODEL_HOST_DIR` 覆盖；首次容器内建索引会在 `./data/embeddings` 生成缓存，重跑读缓存。
 
@@ -769,7 +793,7 @@ docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
   `2.14.1+cu130 True NVIDIA GeForce RTX 4060 Laptop GPU`。
 - `/health`：首次 `indexing`、`vector_ready=false`；模型加载失败后（约 10–40s 内）落到 `bm25-only`，`embedding_device=null`，
   `vector_reason=embedding 模型加载失败（bge-m3）: OutOfMemoryError: CUDA out of memory. Tried to allocate 20.00 MiB. GPU 0 has a total capacity of 8.00 GiB of which 5.46 GiB is free...`
-- `/analyze`（docx，mock）：`matter-a621a54f30`、`awaiting_review`、findings 8、`elapsed_ms=463`、
+- `/analyze`（docx，mock，旧版本合并前）：`matter-a621a54f30`、`awaiting_review`、findings 8、`elapsed_ms=463`、
   `retrieval_mode=bm25-only`、`retrieval_device=n/a`；节点耗时 parse 130 / segment 19 / review 61+55 / bind_evidence 42 / assemble 115 ms。
 - `/review` → `completed`；`/export` → HTTP 200、docx 38563 B。
 

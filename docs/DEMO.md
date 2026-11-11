@@ -41,6 +41,8 @@ uv run python scripts/demo.py
 
 **实测输出（本机一次运行，节选）：**
 
+> **历史输出（2026-11-03，跨路合并前）：** 下面这段仍是 8 findings 的旧版本记录，仅用于对照逐条排版与字段。当前 commit 复跑同一命令为 **4 findings**、docx 38556 B（见 README §4.1，2026-11-11 复核）。
+
 ```text
 [1/6] 上传示例合同
 文件: E:\project\lexflow\examples\sample_service_contract.docx
@@ -52,7 +54,7 @@ engine: mock    status: awaiting_review    端到端耗时: 17835 ms
 doc_id: a0745c7f4893109f
 
 [3/6] 风险清单（8 条，按 high > medium > low 排序）
-说明：以上为 2026-11-03 **合并前**的输出，法务/商务两路当场各报一次。2026-11-07 起合并下沉到 `merge_findings` reducer，同一 `(clause_id, risk_type)` 只留一条，同一份合同现在输出 **4 条**（见 README §3.2）。
+说明：本段是 2026-11-03 **合并前**的旧输出，法务/商务两路当场各报一次。2026-11-07 起合并下沉到 `merge_findings` reducer，同一 `(clause_id, risk_type, 引文)` 只留一条；当前版本同一份合同输出 **4 条**（见 README §3.2 与 §4.1）。
 #1  HIGH 规则 R-PEN-001  条款 C0004（商务）
     法条  中华人民共和国民法典 第五百八十五条
     定位  a0745c7f4893109f · §10 [chars 184:230]
