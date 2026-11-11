@@ -129,7 +129,7 @@ uv run python eval/run_citation_resolution_eval.py # 引用补证前后对照（
 
 CI 见 [.github/workflows/ci.yml](.github/workflows/ci.yml)：`offline` job 执行 `uv sync --frozen` + `compileall` + `pytest -m "not live"`；`docker` job 单独执行镜像构建。工具调用、HITL、G4/G5 三态、严格溯源与 reducer 反向用例都在离线回归里；live API、Docker、GPU 属于独立命令与独立报告。
 
-最近一次 main 推送（commit `bd4eb42`，run 42937979392）实测：`offline` job **141 passed, 1 skipped in 26.35s**，`docker` job 通过。跳过的是语料构建幂等测试——它需要仓库外的法条原文，Linux runner 没有这些文件，测试内写明跳过原因；本地具备外部语料时同一套测试为 142 passed。
+CI 已在两次 main 推送通过：commit `bd4eb42`（run 42937979392，`offline` 141 passed / 1 skipped in 26.35s）与 commit `306121e`（run 42938172277，`offline` 141 passed / 1 skipped in 20.10s），两次 `docker` job 均通过。跳过的是语料构建幂等测试——它需要仓库外的法条原文，Linux runner 没有这些文件，测试内写明跳过原因；本地具备外部语料时同一套测试为 142 passed。
 
 ### 1.6 mock 与真实 API 的区别
 
@@ -456,7 +456,7 @@ mock 的风险判定是显式规则表（代码同源：`lexflow/review/rules.py
 
 | 项目 | 实测结果 | 命令 / 来源 | 性质 |
 |---|---|---|---|
-| 单元/集成测试 | `142 passed, 1 deselected, 1 warning` | `uv run pytest -q -m "not live"`，在 commit **58f9c0e**（代码与测试）上运行；`live` 1 条默认跳过（2026-11-11） | 真实执行 |
+| 单元/集成测试 | 本地 `142 passed, 1 deselected, 1 warning`；CI `141 passed, 1 skipped` | `uv run pytest -q -m "not live"`，本地在 commit **bd4eb42** 上复跑（2026-11-11）；CI 缺仓库外法条原文，跳过语料构建幂等测试 1 条；`live` 1 条默认跳过 | 真实执行 |
 | 离线演示（2026-11-11 复核） | `matter-668ec857ee`；**4 findings**（已跨路合并）；分析 32423 ms（含检索冷启动）+ 确认/导出 138 ms；docx 38556 B；节点合计 3323 ms；`hybrid/cpu`；`llm_calls=14`、tokens 0/0 | `uv run python scripts/demo.py` | mock + 合成示例 |
 | 离线演示（历史，2026-11-07 合并前口径） | `matter-66e706190c`；8 findings（合并前口径）；分析 34670 ms（含首次索引）；确认/导出正常 | 设 `LEXFLOW_DATA_DIR/ARTIFACTS_DIR/DB/EMBED_CACHE` 到全新临时目录后跑 demo | mock + 冷启动，旧版本 |
 | 示例 DOCX 评测 | 条款 7/7、风险召回 **4/4**、findings **4**、溯源 4/4、五闸全过 4/4；`bm25-only` | `uv run python eval/run_eval.py` | mock + 自造样本 |
@@ -502,7 +502,7 @@ mock 的风险判定是显式规则表（代码同源：`lexflow/review/rules.py
 
 | 外部数据集 | 路径 | 行数 | SHA256 |
 |---|---|---:|---|
-| `lawanswer_40`（现 120 行） | `E:\project\LawAnswer\eval\qa_test_cases.jsonl` | 120 | `b86457550cf42d842f1cc13213e5a04758b7e0e8a6e6ed4399a3b70726404f7f` |
+| `lawanswer_120` | `E:\project\LawAnswer\eval\qa_test_cases.jsonl` | 120 | `b86457550cf42d842f1cc13213e5a04758b7e0e8a6e6ed4399a3b70726404f7f` |
 | `lexsynergy_100` | `E:\project\LexSynergy Legal QA System\eval\qa_set_100.jsonl` | 100 | `8fb3f571698beb89bb3ea87255b5cf4f88fc2dbaf5507d5b01a02cbebee890ff` |
 | `lexsynergy_130` | `E:\project\LexSynergy Legal QA System\eval\qa_set_130.jsonl` | 130 | `a13bcbe38d5f43f7e8f77303e332cacc2ce4bb5bc337e2487ec862d029640258` |
 | `lexweave_200` | `E:\project\LexWeave\data\gold\gold_200.jsonl` | 200 | `ae4620bb720d6a725caa46108f79385538256109de34f295afe08033566cd7c5` |
@@ -522,7 +522,7 @@ mock 的风险判定是显式规则表（代码同源：`lexflow/review/rules.py
 
 1. 无 API key、全程离线，一条命令跑完「上传 → 分析 → 风险表 → 确认 → docx → 指标」：`scripts/demo.py`，真实输出见 [docs/DEMO.md](docs/DEMO.md)。
 2. 跨进程恢复：`hitl_demo.py start` 停在 `awaiting_review`，新进程 `resume` 从 SQLite checkpoint 完成导出（pid 83656 → 84840，docx 38740 B）。
-3. 测试全绿：`uv run pytest -q -m "not live"` → **142 passed, 1 deselected, 1 warning**，运行于 commit **58f9c0e**（含任务化 `/analyze`、`/tasks` 取消/重试/幂等、上传边界、matter token、MCP 真实子进程、trace 与 Provider 治理）。README 的本次修订提交只改文档与评测产物、不改代码与测试，因此该结果仍对应当前可执行代码。live API 用 `uv run pytest -q -m live` 单独跑，不与离线通过率混写。
+3. 测试：本地在 commit **bd4eb42** 上复跑 `uv run pytest -q -m "not live"` → **142 passed, 1 deselected, 1 warning**（含任务化 `/analyze`、`/tasks` 取消/重试/幂等、上传边界、matter token、MCP 真实子进程、trace 与 Provider 治理）。CI（Linux、无仓库外法条原文）同一套测试为 **141 passed + 1 skipped**：跳过的是语料构建幂等测试，原因写在测试里。live API 用 `uv run pytest -q -m live` 单独跑，不与离线通过率混写。
 4. 法条语料 1465 条，构建幂等（两次 SHA256 相同）；劳动法康熙部首归一化 1018 字、残留 0。
 5. 合成集 v1 18/18、v2 30/30（注入式 gold），并明确这是“注入风险是否被检出”，不是法律效果。
 6. 检索评测 327 题 / 629 个 gold 条号，三档条号召回@5 408/629、401/629、442/629（本次 embedding=cpu、reranker=cuda）。

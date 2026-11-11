@@ -36,7 +36,7 @@ OUT_CSV = ROOT / "eval" / "retrieval_results.csv"
 OUT_MD = ROOT / "eval" / "retrieval_results.md"
 
 SOURCES = [
-    ("lawanswer_40", Path(r"E:\project\LawAnswer\eval\qa_test_cases.jsonl"), "qa"),
+    ("lawanswer_120", Path(r"E:\project\LawAnswer\eval\qa_test_cases.jsonl"), "qa"),
     (
         "lexsynergy_100",
         Path(r"E:\project\LexSynergy Legal QA System\eval\qa_set_100.jsonl"),
