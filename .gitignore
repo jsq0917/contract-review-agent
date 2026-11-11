@@ -19,13 +19,7 @@ data/synthetic_v1_regen/
 # 向量缓存（由 bge-m3 运行时生成，可重建）
 data/embeddings/
 
-# 评测产物（可重复生成）
-eval/results.csv
-eval/results.md
-eval/synthetic_results.csv
-eval/synthetic_results.md
-eval/retrieval_results.csv
-eval/retrieval_results.md
+# 评测日志（滚动输出，不入库；结果 csv/md 已入库，便于新 clone 直接查看）
 eval/retrieval_run*.log
 
 # 本地环境变量（仅保留占位示例）

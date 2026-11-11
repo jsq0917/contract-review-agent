@@ -10,7 +10,7 @@
 1. QA 集的 expected_articles 形如「中华人民共和国劳动合同法#第十九条」，按法名映射 law_id 后必须能在语料中找到。
 2. LexWeave gold 形如「lcl#30」，阿拉伯条号转中文条号后必须能找到。
 3. 一条问题的所有标注条号都能对齐才纳入；否则整条剔除并计数。
-4. 按 question 文本去重（多个文件存在嵌套重复）。
+4. 按 question 文本去重（qa_set_100 完全包含于 qa_set_130，qa_test_cases 与它们只有部分交集）。
 
 只输出原始命中计数与 Recall@5/10，不设目标值，也不据此下结论。
 """
@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import sys
 import time
@@ -130,6 +131,7 @@ def load_cases(articles: list[LawArticle]) -> tuple[list[Case], list[dict]]:
         report = {
             "source": name,
             "path": str(path),
+            "sha256": "",
             "rows": 0,
             "aligned": 0,
             "excluded": 0,
@@ -139,6 +141,7 @@ def load_cases(articles: list[LawArticle]) -> tuple[list[Case], list[dict]]:
             report["excluded_reasons"]["missing_file"] += 1
             reports.append(report)
             continue
+        report["sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
         rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
         report["rows"] = len(rows)
         resolver = resolve_qa_ref if kind == "qa" else resolve_gold_ref
@@ -316,18 +319,22 @@ def main() -> int:
         "",
         "## 数据集对齐与剔除",
         "",
-        "| 文件 | 行数 | 对齐纳入 | 剔除 | 空标注 | 条号无法对齐 | 文件缺失 |",
-        "|---|---|---|---|---|---|---|",
+        "| 文件 | 行数 | 对齐纳入 | 剔除 | 空标注 | 条号无法对齐 | 文件缺失 | SHA256 |",
+        "|---|---|---|---|---|---|---|---|",
     ]
     for report in source_reports:
         lines.append(
             f"| {report['source']} | {report['rows']} | {report['aligned']} | "
             f"{report['excluded']} | {report['excluded_reasons']['empty_expected']} | "
-            f"{report['excluded_reasons']['unresolved_ref']} | {report['excluded_reasons']['missing_file']} |"
+            f"{report['excluded_reasons']['unresolved_ref']} | {report['excluded_reasons']['missing_file']} | "
+            f"`{report['sha256'] or '文件缺失'}` |"
         )
     lines += [
         "",
         f"合并按 question 去重后参与评测：**{total}** 条。",
+        "",
+        "> 外部数据集不在本仓库内；上表 SHA256 用于确认与他人运行的是同一份数据。"
+        "`qa_test_cases.jsonl` 从 40 行扩到 120 行是外部数据集扩容，不是检索方案变更。",
         "",
         "## 三档检索原始命中",
         "",

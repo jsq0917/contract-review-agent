@@ -2,13 +2,24 @@ import hashlib
 import json
 from pathlib import Path
 
+import pytest
+
 from lexflow.config import ROOT
-from lexflow.corpus_build import build_corpus
+from lexflow.corpus_build import CIVIL_MD, LABOR_MD, LCL_MD, REF_CORPUS, build_corpus
 from lexflow.retrieval.corpus import load_corpus
 from lexflow.retrieval.hybrid import HybridRetriever
 
 CORPUS_DIR = ROOT / "data" / "corpus"
 CORPUS_FILE = CORPUS_DIR / "law_articles.jsonl"
+
+# 构建脚本的输入来自仓库外的法条原文目录；CI runner 没有这些文件。
+# 只跳过依赖它们的构建幂等测试，其余测试读的是已入库的 data/corpus。
+EXTERNAL_SOURCES = (REF_CORPUS, CIVIL_MD, LABOR_MD, LCL_MD)
+MISSING_SOURCES = tuple(str(path) for path in EXTERNAL_SOURCES if not path.exists())
+REQUIRES_SOURCES = pytest.mark.skipif(
+    bool(MISSING_SOURCES),
+    reason="构建幂等测试需要仓库外的法条原文：" + "; ".join(MISSING_SOURCES),
+)
 
 
 def _sha256(path: Path) -> str:
@@ -66,6 +77,7 @@ def test_kangxi_normalization_log_is_complete():
     assert manifest["files"]["labor_law_normalization.jsonl"] == _sha256(log_path)
 
 
+@REQUIRES_SOURCES
 def test_build_is_idempotent(tmp_path: Path):
     first = build_corpus(tmp_path / "run1")
     first_hash = first["files"]["law_articles.jsonl"]

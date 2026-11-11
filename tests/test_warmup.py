@@ -23,11 +23,18 @@ def _wait_status(service: AnalyzeService, expected: set[str], timeout: float = 6
     return service.warmup_state["status"]
 
 
-def test_warmup_skipped_without_model(service: AnalyzeService):
-    state = service.warmup_state
-    assert state["status"] == "skipped"
-    assert "未配置" in state["reason"]
-    assert service.retriever.reranker.available is False
+def test_warmup_skipped_without_model(settings: Settings):
+    """预热开启但没配置模型：原因必须是「未配置」，而不是被环境变量关掉。"""
+    custom = dataclasses.replace(settings, reranker_model="", reranker_warmup=True)
+    service = AnalyzeService(custom)
+    try:
+        state = service.warmup_state
+        assert state["status"] == "skipped"
+        assert "未配置" in state["reason"]
+        assert "关闭" not in state["reason"]
+        assert service.retriever.reranker.available is False
+    finally:
+        service.store.close()
 
 
 def test_warmup_skipped_when_disabled(settings: Settings, tmp_path):

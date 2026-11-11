@@ -486,7 +486,9 @@ mock 的风险判定是显式规则表（代码同源：`lexflow/review/rules.py
 - 只用能对齐到法条条号的标注：QA 集 `expected_articles` 为 `法名#条号`；LexWeave gold 为 `law_id#数字`，先转中文条号再校验存在性；一条问题的所有标注条号都能对齐才纳入，否则整条剔除并计数。
 - 分档：`dense`（仅向量）、`hybrid`（BM25 + 向量 RRF）、`hybrid+rerank`（hybrid top20 → bge-reranker）。
 - 指标：问题命中（top-k 至少命中 1 条 gold）与条号召回（top-k 覆盖的 gold 条号数 / gold 总数）；只输出原始计数与比率，**不设目标值、不写“效果良好”**。
-- 4 个集合并非独立样本，`qa_test_cases(120) ⊂ qa_set_100 ⊂ qa_set_130`，按 question 去重后合并评测。
+- 4 个集合并非独立样本：`qa_set_100` 完全包含于 `qa_set_130`；`qa_test_cases(120)` 与这两个集合只有 **40 条交集**，另外 80 条是新增题；LexWeave 的 200 条与 QA 集无交集。四文件按 question 去重后共 410 条，其中条号可对齐、实际参与评测的是 327 条。
+- **325 → 327 的成因**：外部 `qa_test_cases.jsonl` 从 40 行扩到 120 行，新增题里只有 2 条通过条号对齐（该文件对齐数 35 → 37），因此纳入题数 +2。这是**外部数据集扩容**，不是检索算法或评测口径变化；三档条号召回的分母也随 gold 标注从 626 增到 629。
+- 外部数据集的路径、行数与 SHA256 见下表；相同 SHA256 才能确认跑的是同一份数据。对应产物 `eval/retrieval_results.md` / `.csv` 已入库，不再依赖本地生成。
 
 | 文件 | 行数 | 对齐纳入 | 剔除 | 剔除原因 |
 |---|---|---|---|---|
@@ -496,6 +498,13 @@ mock 的风险判定是显式规则表（代码同源：`lexflow/review/rules.py
 | `LexWeave\data\gold\gold_200.jsonl` | 200 | 200 | 0 | — |
 | 合并去重后 | — | 327 | — | 按 question 去重后参与评测 |
 
+| 外部数据集 | 路径 | 行数 | SHA256 |
+|---|---|---:|---|
+| `lawanswer_40`（现 120 行） | `E:\project\LawAnswer\eval\qa_test_cases.jsonl` | 120 | `b86457550cf42d842f1cc13213e5a04758b7e0e8a6e6ed4399a3b70726404f7f` |
+| `lexsynergy_100` | `E:\project\LexSynergy Legal QA System\eval\qa_set_100.jsonl` | 100 | `8fb3f571698beb89bb3ea87255b5cf4f88fc2dbaf5507d5b01a02cbebee890ff` |
+| `lexsynergy_130` | `E:\project\LexSynergy Legal QA System\eval\qa_set_130.jsonl` | 130 | `a13bcbe38d5f43f7e8f77303e332cacc2ce4bb5bc337e2487ec862d029640258` |
+| `lexweave_200` | `E:\project\LexWeave\data\gold\gold_200.jsonl` | 200 | `ae4620bb720d6a725caa46108f79385538256109de34f295afe08033566cd7c5` |
+
 | 档位 | 问题命中@5 | 条号召回@5 | 条号召回率@5 | 问题命中@10 | 条号召回@10 | 条号召回率@10 |
 |---|---|---|---|---|---|---|
 | dense | 327/327 | 408/629 | 0.6486 | 327/327 | 471/629 | 0.7488 |
@@ -504,7 +513,7 @@ mock 的风险判定是显式规则表（代码同源：`lexflow/review/rules.py
 
 - 共 629 个 gold 条号标注；单题 gold 条号数可为多个。「问题命中」全部 1.0000 说明这批问题在 top-5 内至少能命中一条标注，**不代表多标注题的全部条号都命中**，因此并列给出条号召回。
 - 本次运行设备：embedding `cpu`、reranker `cuda`（见 `eval/retrieval_results.md` 头部）；本文件只记录这一次运行，没有同批双设备对照。
-- 耗时：索引构建/缓存读取 17.20s、reranker 加载 3.25s、327 条查询编码 12.65s、dense 1.09s、hybrid 0.96s、hybrid+rerank 110.91s（约 **0.339s/题**）。均为单次运行，不是稳态基准。
+- 耗时：索引构建/缓存读取 16.63s、reranker 加载 2.97s、327 条查询编码 10.72s、dense 0.97s、hybrid 0.85s、hybrid+rerank 88.53s（约 **0.271s/题**）。均为单次运行，不是稳态基准。
 - 以上数字只描述这批离线标注在该语料、该设备上的检索结果，不能外推到真实合同审查质量。
 
 ### 4.3 可对外讲的实测事实（每条都有命令）
@@ -700,7 +709,8 @@ mock 的风险判定是显式规则表（代码同源：`lexflow/review/rules.py
 
 - 每条 finding 最多 2 轮工具调用、总计最多 3 次模型调用，工具步数上限 4 步（本轮逐条明细实测为 2 步工具、3 次模型调用）；补证后条号都在语料中、引文都是法条原文连续子串；**这不等于「法条适用」**，适用性仍未评测。
 - **per-finding token 与成本：不可得。** mock 的 token 恒为 0、成本为 `null`，逐条明细里的 0 只是「没有真实模型调用」，不能当作真实 API 的 token/费用；真实 per-finding token、补证导致的费用增量与延迟分布需要付费 API，未执行、未获批准。因此「补证成本可控」**不作为可宣称能力**，当前只宣称「有轮次/步数/条数上限，且拒引可审计」。
-- 离线可证明的是：在「上游零引用」这一最坏输入下，补证能把引用覆盖率从 0 恢复到 100%（3/3 个 case）；工具步数与耗时可复算。
+- 离线可证明的是：在「上游零引用」这一最坏输入下，补证能把引用覆盖率从 0 恢复到 100%（3/3 个 case）；工具步数与耗时可复算。**但这个 100% 由 fixture 的选择逻辑保证**：mock 补证固定取检索 top-1，且该条一定在语料中，不是模型自己判断出来的成功率。
+- 因此本表只证明「补证节点能把零引用补成可核对引用、且拒引可审计」，不代表真实模型在同样输入下的补证成功率。
 
 ---
 
@@ -837,7 +847,7 @@ service 链路（含容器）按 CPU 运行，容器负责 API/UI 编排与检�
   - 2026-11-10 起本机改为**拆分设备**：`LEXFLOW_EMBEDDING_DEVICE=cpu` + `LEXFLOW_RERANKER_DEVICE=cuda`，实测 service 链路正常（`/health` 报 `embedding_device=cpu`、`reranker_device=cuda`）。bge-m3 只用在建索引（一次性、有缓存）与每问编码一条短文本，放 CPU 的代价可以接受；精排才是重活。
   - 注意 Windows 上 **torch 2.15.x 没有 CUDA 轮子**（cu130/cu126 最高 2.14.1），本地 venv 因此固定在 `2.14.1+cu130`；`uv.lock` 里仍是 2.15.0（CPU），所以 `scripts/dev.ps1` 会在 sync 时加 `--inexact --no-install-package torch` 保住它，并由 `scripts/enable-cuda.ps1` 兜底（幂等）。
 - 检索评测的 327 题来自外部既有 QA/gold 集，题目与法条存在较强词汇重合，问题命中在 top-5 已饱和；条号召回仍只覆盖 629 个标注的一部分，不能外推。
-- bge-reranker 早期单独计时约 0.46s/题（20 候选，GPU）；2026-11-11 全量复跑 hybrid+rerank 累计 110.91s / 327 题（0.339s/题，含 hybrid 检索）。**默认不开启**，但已接入审查链路：`/analyze` 的 `rerank` 参数（或 UI 开关）按次启用，候选默认收敛到 `max(10, top_k*3)`，并按 `(query, top_k, candidate_k)` 做单飞 + LRU 缓存——法务与商务两路用同一条款文本，同一次打分复用。报告 `metrics` 里的 `rerank_requested / rerank_used / rerank_applied / rerank_fallback / rerank_cache_hits / rerank_reason` 用于区分“开了开关”和“真的精排了”，降级不静默。
+- bge-reranker 早期单独计时约 0.46s/题（20 候选，GPU）；2026-11-11 全量复跑 hybrid+rerank 累计 88.53s / 327 题（0.271s/题，含 hybrid 检索）。**默认不开启**，但已接入审查链路：`/analyze` 的 `rerank` 参数（或 UI 开关）按次启用，候选默认收敛到 `max(10, top_k*3)`，并按 `(query, top_k, candidate_k)` 做单飞 + LRU 缓存——法务与商务两路用同一条款文本，同一次打分复用。报告 `metrics` 里的 `rerank_requested / rerank_used / rerank_applied / rerank_fallback / rerank_cache_hits / rerank_reason` 用于区分“开了开关”和“真的精排了”，降级不静默。
 - 本机实测（`sample_service_contract.docx`，7 条款 / 4 findings，mock engine）：CPU 版关闭 380ms、开启 35.6s（含模型加载约 15s）；换 `torch 2.14.1+cu130` 后 `reranker_device=cuda`，**模型已热时整单 2.42s**（对照关闭 0.18s），热态单次精排 0.137s、冷启动首次 0.32s，`reranker.load()` 约 20.2s——这笔加载是每进程一次的固定成本，不是每单成本。18 次调用里 7 次命中缓存（法务/商务同 query）。
 - 启动预热（`LEXFLOW_RERANKER_WARMUP=true`，默认）实测：`AnalyzeService` 构造 + 首个 `/health` 仅 **0.22s**（不等模型），约 25.3s 后 `reranker_warmup=ready`（含 `sentence-transformers` 导入约 5s），随后**首单 3.7s**（未预热时同一单要 26.8s）。预热状态在 `/health` 可见，加载失败落到 `failed` + `reranker_reason`，不会假装就绪。
 - 失败归档 `data/failures.jsonl` 只追加、不做轮转；真实 API 下的非法输出比例尚未统计。
