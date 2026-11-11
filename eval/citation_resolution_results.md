@@ -6,27 +6,27 @@
 
 | case | 模式 | findings | 引用/未引用 | 引用覆盖率 | 补证 resolved/refused | 工具步数 | 补证耗时ms | 总耗时ms |
 |---|---|---:|---|---:|---|---:|---:|---:|
-| dev-synthetic-service | off | 4 | 0/4 | 0.0 | 0/0 | 0 | None | 842 |
-| dev-synthetic-service | on | 4 | 4/0 | 1.0 | 4/0 | 8 | 811 | 1117 |
-| dev-synthetic-procurement | off | 5 | 0/5 | 0.0 | 0/0 | 0 | None | 780 |
-| dev-synthetic-procurement | on | 5 | 5/0 | 1.0 | 5/0 | 10 | 903 | 1232 |
-| test-public-labor-template | off | 1 | 0/1 | 0.0 | 0/0 | 0 | None | 324 |
-| test-public-labor-template | on | 1 | 1/0 | 1.0 | 1/0 | 2 | 743 | 1097 |
+| dev-synthetic-service | off | 4 | 0/4 | 0.0 | 0/0 | 0 | None | 578 |
+| dev-synthetic-service | on | 4 | 4/0 | 1.0 | 4/0 | 8 | 603 | 798 |
+| dev-synthetic-procurement | off | 5 | 0/5 | 0.0 | 0/0 | 0 | None | 465 |
+| dev-synthetic-procurement | on | 5 | 5/0 | 1.0 | 5/0 | 10 | 617 | 812 |
+| test-public-labor-template | off | 1 | 0/1 | 0.0 | 0/0 | 0 | None | 183 |
+| test-public-labor-template | on | 1 | 1/0 | 1.0 | 1/0 | 2 | 597 | 793 |
 
 ## 逐条补证明细（mode=on）
 
 | case | finding | clause | 审查路 | 状态 | 工具步数 | 模型调用 | prompt tokens | completion tokens | 耗时ms | 法条 |
 |---|---|---|---|---|---:|---:|---:|---:|---:|---|
-| dev-synthetic-service | F-legal-C0002-1 | C0002 | legal | resolved | 2 | 3 | 0 | 0 | 20 | 中华人民共和国劳动法 第三十四条 |
-| dev-synthetic-service | F-legal-C0004-1 | C0004 | legal | resolved | 2 | 3 | 0 | 0 | 11 | 中华人民共和国民法典 第五百八十五条 |
-| dev-synthetic-service | F-legal-C0005-1 | C0005 | legal | resolved | 2 | 3 | 0 | 0 | 11 | 中华人民共和国民法典 第五百六十六条 |
-| dev-synthetic-service | F-legal-C0006-1 | C0006 | legal | resolved | 2 | 3 | 0 | 0 | 9 | 中华人民共和国劳动法 第八十四条 |
-| dev-synthetic-procurement | F-legal-C0002-1 | C0002 | legal | resolved | 2 | 3 | 0 | 0 | 13 | 中华人民共和国民法典 第四百一十六条 |
-| dev-synthetic-procurement | F-legal-C0003-1 | C0003 | legal | resolved | 2 | 3 | 0 | 0 | 10 | 中华人民共和国劳动法 第八十二条 |
-| dev-synthetic-procurement | F-legal-C0005-1 | C0005 | legal | resolved | 2 | 3 | 0 | 0 | 13 | 中华人民共和国民法典 第八百七十三条 |
-| dev-synthetic-procurement | F-legal-C0005-2 | C0005 | legal | resolved | 2 | 3 | 0 | 0 | 12 | 中华人民共和国民法典 第八百七十三条 |
-| dev-synthetic-procurement | F-legal-C0007-1 | C0007 | legal | resolved | 2 | 3 | 0 | 0 | 8 | 中华人民共和国劳动法 第八十四条 |
-| test-public-labor-template | F-legal-C0005-1 | C0005 | legal | resolved | 2 | 3 | 0 | 0 | 18 | 中华人民共和国劳动合同法 第四十七条 |
+| dev-synthetic-service | F-legal-C0002-1 | C0002 | legal | resolved | 2 | 3 | 0 | 0 | 10 | 中华人民共和国劳动法 第三十四条 |
+| dev-synthetic-service | F-legal-C0004-1 | C0004 | legal | resolved | 2 | 3 | 0 | 0 | 8 | 中华人民共和国民法典 第五百八十五条 |
+| dev-synthetic-service | F-legal-C0005-1 | C0005 | legal | resolved | 2 | 3 | 0 | 0 | 7 | 中华人民共和国民法典 第五百六十六条 |
+| dev-synthetic-service | F-legal-C0006-1 | C0006 | legal | resolved | 2 | 3 | 0 | 0 | 7 | 中华人民共和国劳动法 第八十四条 |
+| dev-synthetic-procurement | F-legal-C0002-1 | C0002 | legal | resolved | 2 | 3 | 0 | 0 | 10 | 中华人民共和国民法典 第四百一十六条 |
+| dev-synthetic-procurement | F-legal-C0003-1 | C0003 | legal | resolved | 2 | 3 | 0 | 0 | 6 | 中华人民共和国劳动法 第八十二条 |
+| dev-synthetic-procurement | F-legal-C0005-1 | C0005 | legal | resolved | 2 | 3 | 0 | 0 | 7 | 中华人民共和国民法典 第八百七十三条 |
+| dev-synthetic-procurement | F-legal-C0005-2 | C0005 | legal | resolved | 2 | 3 | 0 | 0 | 7 | 中华人民共和国民法典 第八百七十三条 |
+| dev-synthetic-procurement | F-legal-C0007-1 | C0007 | legal | resolved | 2 | 3 | 0 | 0 | 6 | 中华人民共和国劳动法 第八十四条 |
+| test-public-labor-template | F-legal-C0005-1 | C0005 | legal | resolved | 2 | 3 | 0 | 0 | 14 | 中华人民共和国劳动合同法 第四十七条 |
 
 ## 结论与降级
 

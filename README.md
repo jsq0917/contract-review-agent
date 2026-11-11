@@ -382,7 +382,7 @@ lexflow/
   - `get_clause_context(clause_id)`：读取条款及上下文。
 - 两种运行时：默认启动真实 MCP 子进程（`lexflow/tools/mcp_server.py`，手写 JSON-RPC 2.0 over stdio，不新增依赖）；启动失败时降级为进程内本地运行时并记录原因。无 API Key / mock 引擎同样走确定性工具流程。
 - 严格校验：模型只能引用语料中真实存在的条号；`cited_quote` 归一化后必须是该法条原文的连续子串，否则拒引（`refused`）；补证不写 `rule_id`，G4 不会因此变 pass；导出仍必须经过人工确认。
-- 上限：最多 2 轮模型调用、4 步工具调用、单次审查最多补证 8 条 finding（超出如实记 `skipped_budget`）。
+- 上限：最多 2 轮工具调用（总计最多 3 次模型调用：2 次带工具 + 1 次收尾）、工具步数最多 4 步、单次审查最多补证 8 条 finding（超出如实记 `skipped_budget`）。
 - 启动 MCP 服务：`uv run python -m lexflow.tools.mcp_server --corpus data/corpus/law_articles.jsonl --clauses artifacts/<matter_id>/clauses.json`。
 
 ---
@@ -454,7 +454,7 @@ mock 的风险判定是显式规则表（代码同源：`lexflow/review/rules.py
 
 | 项目 | 实测结果 | 命令 / 来源 | 性质 |
 |---|---|---|---|
-| 单元/集成测试 | `142 passed, 1 deselected, 1 warning` | `uv run pytest -q -m "not live"`，在 commit **b921d72**（代码与测试）上运行；`live` 1 条默认跳过（2026-11-11） | 真实执行 |
+| 单元/集成测试 | `142 passed, 1 deselected, 1 warning` | `uv run pytest -q -m "not live"`，在 commit **58f9c0e**（代码与测试）上运行；`live` 1 条默认跳过（2026-11-11） | 真实执行 |
 | 离线演示（2026-11-11 复核） | `matter-668ec857ee`；**4 findings**（已跨路合并）；分析 32423 ms（含检索冷启动）+ 确认/导出 138 ms；docx 38556 B；节点合计 3323 ms；`hybrid/cpu`；`llm_calls=14`、tokens 0/0 | `uv run python scripts/demo.py` | mock + 合成示例 |
 | 离线演示（历史，2026-11-07 合并前口径） | `matter-66e706190c`；8 findings（合并前口径）；分析 34670 ms（含首次索引）；确认/导出正常 | 设 `LEXFLOW_DATA_DIR/ARTIFACTS_DIR/DB/EMBED_CACHE` 到全新临时目录后跑 demo | mock + 冷启动，旧版本 |
 | 示例 DOCX 评测 | 条款 7/7、风险召回 **4/4**、findings **4**、溯源 4/4、五闸全过 4/4；`bm25-only` | `uv run python eval/run_eval.py` | mock + 自造样本 |
@@ -470,8 +470,8 @@ mock 的风险判定是显式规则表（代码同源：`lexflow/review/rules.py
 | API 引擎（历史，不可由当前 commit 复现） | docx：召回 **3/4**、findings 8、严格溯源 8/8、引用 4/8、五闸 0/8、¥0.1656；pdf：召回 **5/5**、findings 11、严格溯源 11/11、引用 1/11、五闸 0/11、¥0.1568。五闸为 0 是因为 G4 在 API 路径固定 skipped（不校验法条适用性），不是闸门失效 | `uv run python eval/run_eval.py --engine api` | **真实 API 单次**，样本 2，详见 §4.6 的历史横幅 |
 | 真实劳动合同冒烟（mock 可复现 / api 历史） | mock **1** 条 vs api **12** 条；api 严格溯源 **12/12**、引用 5/12、五闸 0/12、9 个风险点（两路全部重合）、¥0.1782、153 s（api 行为不可由当前 commit 复现） | `uv run python eval/run_contract_smoke.py --files examples/real/labor_contract.docx --engine {mock|api}` | 真实合同模板 1 份，无 gold，详见 §4.7 |
 | 法条语料 | 1465 条（1260 / 107 / 98）；两次构建 SHA256 相同；劳动法 107 条归一化、正文替换 1018 字、残留 0 | `uv run python scripts/build_corpus.py`（连续两次） | 真实法条 |
-| 检索评测对齐 | 4 个文件 35/95/125/200；按 question 去重 330；剔除 5 条空标注；纳入 **325** 题；gold 条号 **626** | `uv run python eval/run_retrieval_eval.py` | 外部标注 |
-| 检索三档（评测脚本路径 GPU） | dense/hybrid/rerank 条号召回@5 = **405/626、398/626、439/626**；@10 = **468/626、471/626、501/626**；问题命中@5 均 325/325 | 同上，见 `eval/retrieval_results.md` | 外部标注 |
+| 检索评测对齐 | 4 个文件 37/95/125/200；按 question 去重后纳入 **327** 题；gold 条号 **629** | `uv run python eval/run_retrieval_eval.py` | 外部标注 |
+| 检索三档（embedding=cpu / reranker=cuda） | dense/hybrid/rerank 条号召回@5 = **408/629、401/629、442/629**；@10 = **471/629、474/629、504/629**；问题命中@5 均 327/327 | 同上，见 `eval/retrieval_results.md` | 外部标注 |
 | CPU 容器 `/health` | 首次 `indexing`、`vector_ready=false`；约 13s 后 `hybrid`、`vector_ready=true`、`embedding_device=cpu`；articles 1465 | `LEXFLOW_API_PORT=18000 docker compose up -d api` + `curl /health`（阶段 4 记录） | 容器实测 |
 | CPU 容器 `/analyze`（旧版本，合并前） | `awaiting_review`、findings 8、`elapsed_ms=7498`、`hybrid/cpu`、verify 24/24 | 同上（阶段 4 记录） | 容器实测，历史记录 |
 | GPU 容器（旧版本，合并前） | 构建成功；容器内 `torch.cuda.is_available()=True`（RTX 4060），但 bge-m3 加载 OOM → `embedding_device=null`、`retrieval_mode=bm25-only`；`/analyze` findings 8、`elapsed_ms=463`、`retrieval_device=n/a`；review/export 正常 | 见 [§5.3](#53-gpu-容器最终结论) | 容器实测，GPU 未启用，历史记录 |
@@ -486,36 +486,35 @@ mock 的风险判定是显式规则表（代码同源：`lexflow/review/rules.py
 - 只用能对齐到法条条号的标注：QA 集 `expected_articles` 为 `法名#条号`；LexWeave gold 为 `law_id#数字`，先转中文条号再校验存在性；一条问题的所有标注条号都能对齐才纳入，否则整条剔除并计数。
 - 分档：`dense`（仅向量）、`hybrid`（BM25 + 向量 RRF）、`hybrid+rerank`（hybrid top20 → bge-reranker）。
 - 指标：问题命中（top-k 至少命中 1 条 gold）与条号召回（top-k 覆盖的 gold 条号数 / gold 总数）；只输出原始计数与比率，**不设目标值、不写“效果良好”**。
-- 4 个集合并非独立样本，`qa_test_cases(40) ⊂ qa_set_100 ⊂ qa_set_130`，按 question 去重后合并评测。
+- 4 个集合并非独立样本，`qa_test_cases(120) ⊂ qa_set_100 ⊂ qa_set_130`，按 question 去重后合并评测。
 
 | 文件 | 行数 | 对齐纳入 | 剔除 | 剔除原因 |
 |---|---|---|---|---|
-| `LawAnswer\eval\qa_test_cases.jsonl` | 40 | 35 | 5 | `expected_articles` 为空 |
-| `LexSynergy Legal QA System\eval\qa_set_100.jsonl` | 100 | 95 | 5 | 同上（同一批 5 条） |
-| `LexSynergy Legal QA System\eval\qa_set_130.jsonl` | 130 | 125 | 5 | 同上（同一批 5 条） |
+| `LawAnswer\eval\qa_test_cases.jsonl` | 120 | 37 | 83 | 空标注 15；条号无法对齐 68 |
+| `LexSynergy Legal QA System\eval\qa_set_100.jsonl` | 100 | 95 | 5 | 空标注 |
+| `LexSynergy Legal QA System\eval\qa_set_130.jsonl` | 130 | 125 | 5 | 空标注 |
 | `LexWeave\data\gold\gold_200.jsonl` | 200 | 200 | 0 | — |
-| 合并去重后 | 330 | 325 | 5 | 空标注 |
+| 合并去重后 | — | 327 | — | 按 question 去重后参与评测 |
 
 | 档位 | 问题命中@5 | 条号召回@5 | 条号召回率@5 | 问题命中@10 | 条号召回@10 | 条号召回率@10 |
 |---|---|---|---|---|---|---|
-| dense | 325/325 | 405/626 | 0.6470 | 325/325 | 468/626 | 0.7476 |
-| hybrid | 325/325 | 398/626 | 0.6358 | 325/325 | 471/626 | 0.7524 |
-| hybrid+rerank | 325/325 | 439/626 | 0.7013 | 325/325 | 501/626 | 0.8003 |
+| dense | 327/327 | 408/629 | 0.6486 | 327/327 | 471/629 | 0.7488 |
+| hybrid | 327/327 | 401/629 | 0.6375 | 327/327 | 474/629 | 0.7536 |
+| hybrid+rerank | 327/327 | 442/629 | 0.7027 | 327/327 | 504/629 | 0.8013 |
 
-- 共 626 个 gold 条号标注；单题 gold 条号数可为多个。「问题命中」全部 1.0000 说明这批问题在 top-5 内至少能命中一条标注，**不代表多标注题的全部条号都命中**，因此并列给出条号召回。
-- **两设备召回数字完全一致**（405/626、398/626、439/626；468/626、471/626、501/626）；未观察到浮点或批次差异。
-- 耗时（GPU）：索引缓存读取/模型加载 17.61s（含 CUDA 初始化，不是稳态查询耗时）、reranker 加载 5.37s、325 条查询编码 2.28s、dense 1.38s、hybrid 1.22s、hybrid+rerank 148.58s（约 **0.457s/题**）。
-- CPU 对照（`torch 2.15.0+cpu`）：索引 13.35s、编码 11.39s、dense 1.99s、hybrid 1.73s、hybrid+rerank 1000.88s（约 **3.08s/题**）。
+- 共 629 个 gold 条号标注；单题 gold 条号数可为多个。「问题命中」全部 1.0000 说明这批问题在 top-5 内至少能命中一条标注，**不代表多标注题的全部条号都命中**，因此并列给出条号召回。
+- 本次运行设备：embedding `cpu`、reranker `cuda`（见 `eval/retrieval_results.md` 头部）；本文件只记录这一次运行，没有同批双设备对照。
+- 耗时：索引构建/缓存读取 17.20s、reranker 加载 3.25s、327 条查询编码 12.65s、dense 1.09s、hybrid 0.96s、hybrid+rerank 110.91s（约 **0.339s/题**）。均为单次运行，不是稳态基准。
 - 以上数字只描述这批离线标注在该语料、该设备上的检索结果，不能外推到真实合同审查质量。
 
 ### 4.3 可对外讲的实测事实（每条都有命令）
 
 1. 无 API key、全程离线，一条命令跑完「上传 → 分析 → 风险表 → 确认 → docx → 指标」：`scripts/demo.py`，真实输出见 [docs/DEMO.md](docs/DEMO.md)。
 2. 跨进程恢复：`hitl_demo.py start` 停在 `awaiting_review`，新进程 `resume` 从 SQLite checkpoint 完成导出（pid 83656 → 84840，docx 38740 B）。
-3. 测试全绿：`uv run pytest -q -m "not live"` → **142 passed, 1 deselected, 1 warning**，运行于 commit **b921d72**（含任务化 `/analyze`、`/tasks` 取消/重试/幂等、上传边界、matter token、MCP 真实子进程、trace 与 Provider 治理）。README 的本次修订提交只改文档与评测产物、不改代码与测试，因此该结果仍对应当前可执行代码。live API 用 `uv run pytest -q -m live` 单独跑，不与离线通过率混写。
+3. 测试全绿：`uv run pytest -q -m "not live"` → **142 passed, 1 deselected, 1 warning**，运行于 commit **58f9c0e**（含任务化 `/analyze`、`/tasks` 取消/重试/幂等、上传边界、matter token、MCP 真实子进程、trace 与 Provider 治理）。README 的本次修订提交只改文档与评测产物、不改代码与测试，因此该结果仍对应当前可执行代码。live API 用 `uv run pytest -q -m live` 单独跑，不与离线通过率混写。
 4. 法条语料 1465 条，构建幂等（两次 SHA256 相同）；劳动法康熙部首归一化 1018 字、残留 0。
 5. 合成集 v1 18/18、v2 30/30（注入式 gold），并明确这是“注入风险是否被检出”，不是法律效果。
-6. 检索评测 325 题 / 626 个 gold 条号，三档条号召回@5 405/626、398/626、439/626，且 CPU/GPU 召回一致。
+6. 检索评测 327 题 / 629 个 gold 条号，三档条号召回@5 408/629、401/629、442/629（本次 embedding=cpu、reranker=cuda）。
 7. 本机 GPU 可用性有分叉：`torch 2.14.1+cu130`、RTX 4060 Laptop 8187 MB；直接调用 embedder 的脚本路径走 `cuda`，service 链路本次 CUDA 编码报 `cudaErrorMemoryAllocation` 降级 `bm25-only`，交付按 CPU 运行 service（见 [§2.6](#26-检索与降级)、[§4.5](#45-top-k-对照实验与结论2026-11)）。
 8. CPU Docker 容器可启动并通过 `/health` 与 `/analyze`（articles 1465、findings 8、`hybrid/cpu`；该次运行在跨路合并前，当前代码的示例合同为 4 findings）。
 
@@ -523,7 +522,7 @@ mock 的风险判定是显式规则表（代码同源：`lexflow/review/rules.py
 
 - mock 规则表在示例/合成合同上的召回与 precision **不是真实合同审查准确率**；合成 gold 由注入规则反推，与规则表同构。
 - 真实 API（DeepSeek/Qwen）的抽取质量与引用准确率**尚未评测**；本次 top-k A/B 只有 6 份样本上的成本/耗时与 5 条引用抽检，不能当作 API 效果结论（见 [§4.5](#45-top-k-对照实验与结论2026-11)）。
-- 检索评测的 325 题来自外部既有 QA/gold 集，题目与法条词汇重合度高；问题命中 top-5 已饱和，不代表真实用户查询分布。
+- 检索评测的 327 题来自外部既有 QA/gold 集，题目与法条词汇重合度高；问题命中 top-5 已饱和，不代表真实用户查询分布。
 - 跨路合并后 findings 已去重，但「findings 条数」仍不等于「风险点个数」：同一句话被两路标成不同 `risk_type` 时会保留两条（劳动合同实测 12 条 findings / 9 个风险点）。对外引用时以 `risk_points` 为准，并注明合并键。
 - 没有真实合同样本、律师标注、扫描件合同、并发/多租户压测数据。
 - 真实 API 的引用适用性未评测：top-k 抽检 5 条中 2 条明显错位（劳动法 79、民法典 628），当时的三道闸无法拦截；现在 G4/G5 也不判断法条与条款的语义相关性（见 [§4.5](#45-top-k-对照实验与结论2026-11)）。
@@ -692,14 +691,14 @@ mock 的风险判定是显式规则表（代码同源：`lexflow/review/rules.py
 
 | case | 模式 | findings | 引用/未引用 | 引用覆盖率 | 补证 resolved/refused | 工具步数 | 补证耗时 ms | 总耗时 ms |
 |---|---|---:|---|---:|---|---:|---:|---:|
-| dev-synthetic-service | off | 4 | 0/4 | 0.00 | 0/0 | 0 | — | 842 |
-| dev-synthetic-service | on | 4 | 4/0 | **1.00** | 4/0 | 8 | 811 | 1117 |
-| dev-synthetic-procurement | off | 5 | 0/5 | 0.00 | 0/0 | 0 | — | 780 |
-| dev-synthetic-procurement | on | 5 | 5/0 | **1.00** | 5/0 | 10 | 903 | 1232 |
-| test-public-labor-template | off | 1 | 0/1 | 0.00 | 0/0 | 0 | — | 324 |
-| test-public-labor-template | on | 1 | 1/0 | **1.00** | 1/0 | 2 | 743 | 1097 |
+| dev-synthetic-service | off | 4 | 0/4 | 0.00 | 0/0 | 0 | — | 578 |
+| dev-synthetic-service | on | 4 | 4/0 | **1.00** | 4/0 | 8 | 603 | 798 |
+| dev-synthetic-procurement | off | 5 | 0/5 | 0.00 | 0/0 | 0 | — | 465 |
+| dev-synthetic-procurement | on | 5 | 5/0 | **1.00** | 5/0 | 10 | 617 | 812 |
+| test-public-labor-template | off | 1 | 0/1 | 0.00 | 0/0 | 0 | — | 183 |
+| test-public-labor-template | on | 1 | 1/0 | **1.00** | 1/0 | 2 | 597 | 793 |
 
-- 每条形最多 3 次模型调用、2 步工具调用（工具体系固定流程），补证后条号都在语料中、引文都是法条原文连续子串；**这不等于「法条适用」**，适用性仍未评测。
+- 每条 finding 最多 2 轮工具调用、总计最多 3 次模型调用，工具步数上限 4 步（本轮逐条明细实测为 2 步工具、3 次模型调用）；补证后条号都在语料中、引文都是法条原文连续子串；**这不等于「法条适用」**，适用性仍未评测。
 - **per-finding token 与成本：不可得。** mock 的 token 恒为 0、成本为 `null`，逐条明细里的 0 只是「没有真实模型调用」，不能当作真实 API 的 token/费用；真实 per-finding token、补证导致的费用增量与延迟分布需要付费 API，未执行、未获批准。因此「补证成本可控」**不作为可宣称能力**，当前只宣称「有轮次/步数/条数上限，且拒引可审计」。
 - 离线可证明的是：在「上游零引用」这一最坏输入下，补证能把引用覆盖率从 0 恢复到 100%（3/3 个 case）；工具步数与耗时可复算。
 
@@ -837,8 +836,8 @@ service 链路（含容器）按 CPU 运行，容器负责 API/UI 编排与检�
 - 混合检索的向量部分已接入本地 bge-m3。**GPU 可用性有分叉**：直接调用 `LocalEmbedder` 的脚本路径可用（`torch 2.14.1+cu130` / RTX 4060 8187 MB）；service 链路（`AnalyzeService` → 图节点 → 检索）在 embedding 与 reranker **同卡**时会报 `cudaErrorMemoryAllocation`（两个模型合计 4.25 GB 权重 + CUDA context，对 8 GB 卡且桌面已占 2.3 GB 余量太紧）。
   - 2026-11-10 起本机改为**拆分设备**：`LEXFLOW_EMBEDDING_DEVICE=cpu` + `LEXFLOW_RERANKER_DEVICE=cuda`，实测 service 链路正常（`/health` 报 `embedding_device=cpu`、`reranker_device=cuda`）。bge-m3 只用在建索引（一次性、有缓存）与每问编码一条短文本，放 CPU 的代价可以接受；精排才是重活。
   - 注意 Windows 上 **torch 2.15.x 没有 CUDA 轮子**（cu130/cu126 最高 2.14.1），本地 venv 因此固定在 `2.14.1+cu130`；`uv.lock` 里仍是 2.15.0（CPU），所以 `scripts/dev.ps1` 会在 sync 时加 `--inexact --no-install-package torch` 保住它，并由 `scripts/enable-cuda.ps1` 兜底（幂等）。
-- 检索评测的 325 题来自外部既有 QA/gold 集，题目与法条存在较强词汇重合，问题命中在 top-5 已饱和；条号召回仍只覆盖 626 个标注的一部分，不能外推。
-- bge-reranker 在 GPU 上约 0.46s/题（20 候选），CPU 约 3.08s/题；**默认不开启**，但已接入审查链路：`/analyze` 的 `rerank` 参数（或 UI 开关）按次启用，候选默认收敛到 `max(10, top_k*3)`，并按 `(query, top_k, candidate_k)` 做单飞 + LRU 缓存——法务与商务两路用同一条款文本，同一次打分复用。报告 `metrics` 里的 `rerank_requested / rerank_used / rerank_applied / rerank_fallback / rerank_cache_hits / rerank_reason` 用于区分“开了开关”和“真的精排了”，降级不静默。
+- 检索评测的 327 题来自外部既有 QA/gold 集，题目与法条存在较强词汇重合，问题命中在 top-5 已饱和；条号召回仍只覆盖 629 个标注的一部分，不能外推。
+- bge-reranker 早期单独计时约 0.46s/题（20 候选，GPU）；2026-11-11 全量复跑 hybrid+rerank 累计 110.91s / 327 题（0.339s/题，含 hybrid 检索）。**默认不开启**，但已接入审查链路：`/analyze` 的 `rerank` 参数（或 UI 开关）按次启用，候选默认收敛到 `max(10, top_k*3)`，并按 `(query, top_k, candidate_k)` 做单飞 + LRU 缓存——法务与商务两路用同一条款文本，同一次打分复用。报告 `metrics` 里的 `rerank_requested / rerank_used / rerank_applied / rerank_fallback / rerank_cache_hits / rerank_reason` 用于区分“开了开关”和“真的精排了”，降级不静默。
 - 本机实测（`sample_service_contract.docx`，7 条款 / 4 findings，mock engine）：CPU 版关闭 380ms、开启 35.6s（含模型加载约 15s）；换 `torch 2.14.1+cu130` 后 `reranker_device=cuda`，**模型已热时整单 2.42s**（对照关闭 0.18s），热态单次精排 0.137s、冷启动首次 0.32s，`reranker.load()` 约 20.2s——这笔加载是每进程一次的固定成本，不是每单成本。18 次调用里 7 次命中缓存（法务/商务同 query）。
 - 启动预热（`LEXFLOW_RERANKER_WARMUP=true`，默认）实测：`AnalyzeService` 构造 + 首个 `/health` 仅 **0.22s**（不等模型），约 25.3s 后 `reranker_warmup=ready`（含 `sentence-transformers` 导入约 5s），随后**首单 3.7s**（未预热时同一单要 26.8s）。预热状态在 `/health` 可见，加载失败落到 `failed` + `reranker_reason`，不会假装就绪。
 - 失败归档 `data/failures.jsonl` 只追加、不做轮转；真实 API 下的非法输出比例尚未统计。

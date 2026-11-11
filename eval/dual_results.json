@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-11T00:13:28.989120+00:00",
+  "generated_at": "2026-11-11T00:45:32.567204+00:00",
   "engine": "mock",
   "label_source": "self_review",
   "cases": [
@@ -10,26 +10,26 @@
       "legal_only": {
         "risk_points": 4,
         "findings": 4,
-        "latency_ms": 35607,
+        "latency_ms": 21567,
         "tokens": 0,
         "cost_estimate_cny": 0.0,
-        "trace_id": "trace-matter-2a29fdb2c4"
+        "trace_id": "trace-matter-79bc22fce9"
       },
       "commercial_only": {
         "risk_points": 4,
         "findings": 4,
-        "latency_ms": 1326,
+        "latency_ms": 969,
         "tokens": 0,
         "cost_estimate_cny": 0.0,
-        "trace_id": "trace-matter-c124842d46"
+        "trace_id": "trace-matter-00f4ac7cc6"
       },
       "both": {
         "risk_points": 4,
         "findings": 4,
-        "latency_ms": 1760,
+        "latency_ms": 1580,
         "tokens": 0,
         "cost_estimate_cny": 0.0,
-        "trace_id": "trace-matter-ca5284d95a"
+        "trace_id": "trace-matter-2dce3fddf1"
       },
       "complement": {
         "common": 4,
@@ -92,26 +92,26 @@
       "legal_only": {
         "risk_points": 5,
         "findings": 5,
-        "latency_ms": 1865,
+        "latency_ms": 1399,
         "tokens": 0,
         "cost_estimate_cny": 0.0,
-        "trace_id": "trace-matter-0618380f41"
+        "trace_id": "trace-matter-216fa89417"
       },
       "commercial_only": {
         "risk_points": 5,
         "findings": 5,
-        "latency_ms": 1470,
+        "latency_ms": 1127,
         "tokens": 0,
         "cost_estimate_cny": 0.0,
-        "trace_id": "trace-matter-03c7bf5a24"
+        "trace_id": "trace-matter-7ae5a242b0"
       },
       "both": {
         "risk_points": 5,
         "findings": 5,
-        "latency_ms": 2044,
+        "latency_ms": 1885,
         "tokens": 0,
         "cost_estimate_cny": 0.0,
-        "trace_id": "trace-matter-0a02bc09cd"
+        "trace_id": "trace-matter-deeb4c87d4"
       },
       "complement": {
         "common": 5,
@@ -183,26 +183,26 @@
       "legal_only": {
         "risk_points": 1,
         "findings": 1,
-        "latency_ms": 1009,
+        "latency_ms": 1000,
         "tokens": 0,
         "cost_estimate_cny": 0.0,
-        "trace_id": "trace-matter-05fb482f43"
+        "trace_id": "trace-matter-cdde54868c"
       },
       "commercial_only": {
         "risk_points": 1,
         "findings": 1,
-        "latency_ms": 1072,
+        "latency_ms": 1005,
         "tokens": 0,
         "cost_estimate_cny": 0.0,
-        "trace_id": "trace-matter-1c7b11e54e"
+        "trace_id": "trace-matter-f836d75f2f"
       },
       "both": {
         "risk_points": 1,
         "findings": 1,
-        "latency_ms": 1704,
+        "latency_ms": 1784,
         "tokens": 0,
         "cost_estimate_cny": 0.0,
-        "trace_id": "trace-matter-5caddb4fb6"
+        "trace_id": "trace-matter-3829844157"
       },
       "complement": {
         "common": 1,

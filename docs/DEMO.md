@@ -33,7 +33,7 @@ uv run python scripts/demo.py
 | 屏幕步骤 | 你讲什么 | 实际发生 |
 |---|---|---|
 | `[1/6] 上传示例合同` | 输入是仓库自带的示例合同，打印文件大小和 SHA256，方便核对样本没被换过 | 文件被复制到 `artifacts/<matter_id>/` |
-| `[2/6] mock 分析` | 解析 → 切分条款 → 法务/商务两路审查 → 检索法条绑定证据 → 三道核验 → 组装报告；此时停在人工确认点 | LangGraph `interrupt()`，状态 `awaiting_review` |
+| `[2/6] mock 分析` | 解析 → 切分条款 → 法务/商务两路审查 → 引用补证 → 检索法条绑定证据 → 五道核验 → 组装报告；此时停在人工确认点 | LangGraph `interrupt()`，状态 `awaiting_review` |
 | `[3/6] 风险清单` | 每条含风险等级、规则 ID、条款号、法条依据、定位锚、问题与建议，按 high > medium > low 排序 | 数据来自报告 `findings`，不是前端伪造 |
 | `[4/6] 人工确认` | 模拟人点“确认”，`Command(resume=...)` 继续跑 | 审批记录写入 SQLite，状态变 `completed` |
 | `[5/6] 导出 docx` | 打印 docx 路径与字节数 | docxtpl 渲染，风险表行数 = DB findings 数 |
@@ -129,7 +129,7 @@ UI 单页：上传 → 选立场 → 审查 → 风险表 → 确认/驳回 → 
 |---|---|
 | 准确率/召回率是多少？ | **没有真实合同上的准确率**。仓库里只有 12 份合成合同 + 注入式 gold，数字是「注入风险是否被规则检出」，见 `eval/synthetic_results*.md`；不能外推成法律效果。 |
 | 示例合同 4/5、4/4 是什么意思？ | 是示例样本上的风险条款召回（4/5 = 原有 1 条 + 阶段 3 补的 3 条 detector），不是模型能力，见 README「实测数字与来源」。 |
-| 为什么同一条款报两次？ | 已经不报了。合并放在 `merge_findings` reducer 里，按 `(clause_id, risk_type)` 合成一条，`reviewers` 记两路来源。之前是合并在节点里做、被 reducer 的并集语义撤销了——节点返回 4 条，reducer 把没覆盖到的 4 条又 union 回来。真实 API 下两路 prompt 不同，合并键相同，逻辑不变但效果仍未评测。 |
+| 为什么同一条款报两次？ | 已经不报了。合并放在 `merge_findings` reducer 里，按 `(clause_id, risk_type, 引文)` 合成一条，`reviewers` 记两路来源。之前是合并在节点里做、被 reducer 的并集语义撤销了——节点返回 4 条，reducer 把没覆盖到的 4 条又 union 回来。真实 API 下两路 prompt 不同，合并键相同，逻辑不变但效果仍未评测。 |
 | docx 为什么没有页码？ | docx 本身不保存分页信息，不伪造页码；用「§段落号 + 章节标题 + 字符 span」定位。PDF 才用 PyMuPDF 的真实页码/bbox。 |
 | token 为什么是 0？ | mock 不调用模型，token 恒 0，成本 0；真实 API 才记录原始 token，且未评测效果。 |
 | 为什么 14 次 LLM 调用但 token 是 0？ | 调用次数是审查器被调用的次数（mock 也计次），token 只在真实 API 下产生。 |
