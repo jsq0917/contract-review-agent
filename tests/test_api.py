@@ -252,6 +252,14 @@ def test_reject_keeps_checkpoint_without_export(client):
     assert rejected.json()["status"] == "rejected"
     assert rejected.json()["docx_path"] == ""
     assert test_client.get(f"/export/{matter_id}", headers=headers).status_code == 409
+    # 驳回后任务行与 matter 状态一致：/tasks 查询与底层 tasks 表都不能再挂 awaiting_review。
+    assert test_client.get(f"/tasks/{record['task_id']}", headers=headers).json()["status"] == "rejected"
+    assert _svc.store.get_task(record["task_id"])["status"] == "rejected"
+    # 已驳回属终态，取消必须被拒绝，不能把 matter 反手改成 cancelled。
+    assert (
+        test_client.post(f"/tasks/{record['task_id']}/cancel", headers=headers).status_code == 409
+    )
+    assert _svc.store.get_matter(matter_id)["status"] == "rejected"
 
 
 def test_unknown_matter_returns_404(client):

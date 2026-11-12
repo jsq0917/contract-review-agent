@@ -222,17 +222,24 @@ class AnalyzeService:
         计数器挂在检索器实例上，并发 analyze 会互相混入——单机演示下精确，
         多用户共用同一进程时 ``rerank_used`` 可能把别人的精排算到本次头上。
         要彻底隔离得按请求建计数器；在那之前宁可把话说清楚，也不要谎报“已精排”。
+
+        ``rerank_used`` 的口径是「这次检索有没有用上精排结果」：
+        - ``applied > 0``：本次真的重新打分了；
+        - ``applied == 0`` 且 ``cache_hits > 0``：命中同进程的精排缓存，结果仍是精排结果，
+          同样算生效（缓存不是降级，也说明之前已经算过）；
+        - 只有真正降级（模型不可用 / 打分失败，``fallback > 0``）才算未生效并给出原因。
         """
         after = self.retriever.rerank_stats
         applied = max(0, after["applied"] - before.get("applied", 0))
         fallback = max(0, after["fallback"] - before.get("fallback", 0))
         cache_hits = max(0, after["cache_hits"] - before.get("cache_hits", 0))
+        used = applied > 0 or (cache_hits > 0 and fallback == 0)
         reason = None
-        if requested and applied == 0:
+        if requested and not used:
             reason = self.retriever.rerank_reason or "未发起精排调用"
         return {
             "rerank_requested": requested,
-            "rerank_used": applied > 0,
+            "rerank_used": used,
             "rerank_applied": applied,
             "rerank_fallback": fallback,
             "rerank_cache_hits": cache_hits,

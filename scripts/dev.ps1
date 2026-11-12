@@ -39,34 +39,71 @@ if ($NoCuda) {
     & "$PSScriptRoot\enable-cuda.ps1" -Python $VenvPy
 }
 
-Write-Host "[3/5] 检查端口 ..." -ForegroundColor Cyan
-foreach ($port in 8000, 8501) {
-    $busy = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
-    if ($busy) {
-        Write-Host "端口 $port 已被占用（PID: $($busy[0].OwningProcess)），请先关闭后再运行。" -ForegroundColor Yellow
-        exit 1
+function Test-HttpOk([string]$Uri) {
+    try {
+        $resp = Invoke-WebRequest -Uri $Uri -TimeoutSec 3 -UseBasicParsing
+        return ($resp.StatusCode -eq 200)
+    } catch {
+        return $false
     }
 }
 
-Write-Host "[4/5] 启动 FastAPI: http://127.0.0.1:8000/docs" -ForegroundColor Cyan
-# 用 venv 的 python 直接起，不走 uv run：uv run 会隐式 sync，把 CUDA torch 换回 CPU 版。
-Start-Process -FilePath $VenvPy -ArgumentList "-m", "lexflow.api.main" -WorkingDirectory $Root
-
-$ready = $false
-for ($i = 0; $i -lt 40; $i++) {
-    Start-Sleep -Milliseconds 500
-    try {
-        $resp = Invoke-WebRequest -Uri "http://127.0.0.1:8000/health" -TimeoutSec 2 -UseBasicParsing
-        if ($resp.StatusCode -eq 200) { $ready = $true; break }
-    } catch { }
+Write-Host "[3/5] 检查端口 ..." -ForegroundColor Cyan
+# 端口被占时先判断是不是本项目的服务：健康就直接复用，避免再拉起一个必然绑定失败的进程；
+# 被其他程序占用则直接退出，不盲目抢端口。
+$ApiRunning = $false
+$UiRunning = $false
+foreach ($port in 8000, 8501) {
+    $busy = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
+    if (-not $busy) { continue }
+    $ownerText = ($busy | ForEach-Object { $_.OwningProcess } | Sort-Object -Unique) -join ', '
+    if ($port -eq 8000 -and (Test-HttpOk "http://127.0.0.1:8000/health")) {
+        Write-Host "      8000 已有 API 在运行（PID: $ownerText），直接复用，不再启动第二个进程。" -ForegroundColor Yellow
+        $ApiRunning = $true
+        continue
+    }
+    if ($port -eq 8501 -and (Test-HttpOk "http://127.0.0.1:8501")) {
+        Write-Host "      8501 已有 Streamlit 在运行（PID: $ownerText），直接复用，不再启动第二个进程。" -ForegroundColor Yellow
+        $UiRunning = $true
+        continue
+    }
+    Write-Host "端口 $port 被其他程序占用（PID: $ownerText）且服务不可用，请先释放端口后重试。" -ForegroundColor Red
+    exit 1
 }
-if ($ready) {
-    Write-Host "      API 已就绪。" -ForegroundColor Green
+
+if ($ApiRunning) {
+    Write-Host "[4/5] FastAPI 已在运行，跳过启动。" -ForegroundColor Cyan
 } else {
-    Write-Host "      API 20 秒内未就绪，请查看新打开的 FastAPI 窗口报错。" -ForegroundColor Yellow
+    Write-Host "[4/5] 启动 FastAPI: http://127.0.0.1:8000/docs" -ForegroundColor Cyan
+    # 用 venv 的 python 直接起，不走 uv run：uv run 会隐式 sync，把 CUDA torch 换回 CPU 版。
+    Start-Process -FilePath $VenvPy -ArgumentList "-m", "lexflow.api.main" -WorkingDirectory $Root
+
+    $ready = $false
+    for ($i = 0; $i -lt 40; $i++) {
+        Start-Sleep -Milliseconds 500
+        try {
+            $resp = Invoke-WebRequest -Uri "http://127.0.0.1:8000/health" -TimeoutSec 2 -UseBasicParsing
+            if ($resp.StatusCode -eq 200) { $ready = $true; break }
+        } catch { }
+    }
+    if ($ready) {
+        Write-Host "      API 已就绪。" -ForegroundColor Green
+    } else {
+        Write-Host "      API 20 秒内未就绪，请查看新打开的 FastAPI 窗口报错。" -ForegroundColor Yellow
+    }
 }
 
-Write-Host "[5/5] 启动 Streamlit: http://127.0.0.1:8501" -ForegroundColor Cyan
-Start-Process -FilePath $VenvPy -ArgumentList "-m", "streamlit", "run", "lexflow/ui/app.py", "--server.port", "8501" -WorkingDirectory $Root
+if ($UiRunning) {
+    Write-Host "[5/5] Streamlit 已在运行，跳过启动：http://127.0.0.1:8501" -ForegroundColor Cyan
+} else {
+    Write-Host "[5/5] 启动 Streamlit: http://127.0.0.1:8501" -ForegroundColor Cyan
+    # app.py 用 LEXFLOW_API_URL 找后端；子进程继承当前进程的环境变量。
+    $env:LEXFLOW_API_URL = "http://127.0.0.1:8000"
+    Start-Process -FilePath $VenvPy -ArgumentList "-m", "streamlit", "run", "lexflow/ui/app.py", "--server.port", "8501" -WorkingDirectory $Root
+}
 
-Write-Host "已在新窗口启动；关闭对应窗口即可停止服务。" -ForegroundColor Green
+if ($ApiRunning -and $UiRunning) {
+    Write-Host "两个服务都已在运行，本次未启动新进程。" -ForegroundColor Green
+} else {
+    Write-Host "已在新窗口启动；关闭对应窗口即可停止服务。" -ForegroundColor Green
+}

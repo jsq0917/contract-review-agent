@@ -182,3 +182,46 @@ def test_search_reranked_bypasses_cache():
 
     assert stub.candidates == [20, 20]
     assert retriever.rerank_stats["cache_hits"] == 0
+
+
+def _service_with_rerank_stats(stats: dict[str, int], reason: str = ""):
+    """只借用 _rerank_metrics 的判定逻辑，不构造真实 Service（那会加载语料与模型）。"""
+    from types import SimpleNamespace
+
+    from lexflow.service import AnalyzeService
+
+    service = AnalyzeService.__new__(AnalyzeService)
+    service.retriever = SimpleNamespace(rerank_stats=stats, rerank_reason=reason)
+    return service
+
+
+def test_rerank_metrics_cache_only_counts_as_used():
+    """纯缓存命中用的是此前的精排结果，不能算降级。"""
+    service = _service_with_rerank_stats({"applied": 0, "fallback": 0, "cache_hits": 19})
+    metrics = service._rerank_metrics(True, {"applied": 0, "fallback": 0, "cache_hits": 0})
+    assert metrics["rerank_used"] is True
+    assert metrics["rerank_applied"] == 0
+    assert metrics["rerank_cache_hits"] == 19
+    assert metrics["rerank_reason"] is None
+
+
+def test_rerank_metrics_fallback_is_still_ineffective():
+    """模型不可用/打分失败（fallback>0）才是真的未生效，且要带原因。"""
+    service = _service_with_rerank_stats(
+        {"applied": 0, "fallback": 16, "cache_hits": 0}, "未配置 reranker 模型"
+    )
+    metrics = service._rerank_metrics(True, {"applied": 0, "fallback": 0, "cache_hits": 0})
+    assert metrics["rerank_used"] is False
+    assert metrics["rerank_fallback"] == 16
+    assert metrics["rerank_reason"] == "未配置 reranker 模型"
+
+
+def test_rerank_metrics_applied_is_used_and_not_requested_has_no_reason():
+    service = _service_with_rerank_stats({"applied": 10, "fallback": 0, "cache_hits": 14})
+    metrics = service._rerank_metrics(True, {"applied": 0, "fallback": 0, "cache_hits": 0})
+    assert metrics["rerank_used"] is True
+    assert metrics["rerank_applied"] == 10
+
+    skipped = service._rerank_metrics(False, {"applied": 10, "fallback": 0, "cache_hits": 14})
+    assert skipped["rerank_requested"] is False
+    assert skipped["rerank_reason"] is None

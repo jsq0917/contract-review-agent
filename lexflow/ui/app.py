@@ -35,7 +35,8 @@ def _headers(matter: dict) -> dict[str, str]:
     return {"X-Matter-Token": token} if token else {}
 
 
-def _review(matter: dict, action: str, comment: str) -> None:
+def _review(matter: dict, action: str, comment: str) -> bool:
+    """提交人工复核；返回是否成功（失败时由按钮侧解锁，避免 submitting 卡死）。"""
     try:
         response = requests.post(
             f"{API}/review/{matter['matter_id']}",
@@ -45,15 +46,16 @@ def _review(matter: dict, action: str, comment: str) -> None:
         )
     except requests.RequestException as exc:
         st.error(f"连不上后端 API（{API}）：{exc}。请确认 `uv run lexflow-api` 已启动。")
-        return
+        return False
     if response.status_code != 200:
         st.error(f"复核失败: {response.status_code} {response.text}")
-        return
+        return False
     payload = response.json()
     matter["status"] = payload["status"]
     matter["docx_path"] = payload.get("docx_path")
     matter["metrics"] = payload.get("metrics", matter.get("metrics", {}))
     st.session_state["matter"] = matter
+    return True
 
 
 @st.cache_data(ttl=30, show_spinner=False)
@@ -104,9 +106,14 @@ with st.form("analyze"):
     file = st.file_uploader("上传合同（PDF/docx）", type=["pdf", "docx"])
     stance = st.selectbox("审查立场", ["甲方", "乙方"])
     as_of = st.text_input("法律时点 as_of", value=date.today().isoformat())
+    # 和下面的精排开关一样用 key + session_state 固定选择：否则页面重新执行时
+    # 会按默认值重新求值，用户选的 api 会被静默换回 mock。
+    if "engine" not in st.session_state:
+        st.session_state["engine"] = "mock"
     engine = st.selectbox(
         "engine",
         ["mock", "auto", "api"],
+        key="engine",
         help="默认 mock：不调用模型、零成本，适合演示链路；auto 有 API key 时走真实模型，单份约 70–160s。",
     )
     # 用 key + session_state 存用户选择：否则每次 rerun 都会按 value= 重新求值，
@@ -170,10 +177,16 @@ if submitted and file:
                 f"任务失败（{payload['error'].get('code')}）：{payload['error'].get('message')}"
             )
         st.session_state["matter"] = matter
+        st.session_state["submitting"] = False
 
 matter = st.session_state.get("matter")
 if matter:
     engine_used = matter.get("engine", "unknown")
+    engine_tag = (
+        "engine=mock（固定规则表输出，仅演示链路，不代表模型效果）"
+        if engine_used == "mock"
+        else f"engine={engine_used}"
+    )
     if engine_used == "mock":
         st.error(
             "⚠ engine=mock：以下风险由固定规则表生成，仅用于链路/界面演示，"
@@ -201,20 +214,28 @@ if matter:
             + "；".join(f"{name}={value}ms" for name, value in node_ms.items())
         )
 
+    # 精排状态分三种，别把「缓存命中」当成降级：hybrid 检索路径本就包含精排排序，
+    # 只有真的没拿到精排结果（fallback）才算未生效。
     rerank_requested = metrics.get("rerank_requested")
-    if rerank_requested and not metrics.get("rerank_used"):
-        st.warning(
-            "已请求精排但未生效，本次实际走 hybrid 检索："
-            f"{metrics.get('rerank_reason') or '原因未记录'}"
-        )
-    elif rerank_requested:
-        st.caption(
-            f"精排已生效：{metrics.get('rerank_applied', 0)} 次重排、"
-            f"{metrics.get('rerank_cache_hits', 0)} 次命中缓存、"
-            f"{metrics.get('rerank_fallback', 0)} 次降级。"
-        )
-    elif rerank_requested is False:
+    applied = metrics.get("rerank_applied", 0)
+    cache_hits = metrics.get("rerank_cache_hits", 0)
+    fallback = metrics.get("rerank_fallback", 0)
+    if rerank_requested is False:
         st.caption("本次未启用精排（hybrid 检索）。")
+    elif rerank_requested:
+        if applied > 0:
+            tail = f"；其中 {fallback} 次降级" if fallback else ""
+            st.caption(f"精排已生效：{applied} 次重排、{cache_hits} 次命中缓存{tail}。")
+        elif cache_hits > 0 and not fallback:
+            # 旧报告里 rerank_used 可能是 false，但 cache_hits>0 说明结果仍来自精排缓存。
+            st.caption(f"精排已生效，本次 {cache_hits} 次查询全部命中缓存（未重复打分）。")
+        elif metrics.get("rerank_used"):
+            st.caption("精排已生效。")
+        else:
+            st.warning(
+                "已请求精排但未生效：本批查询没有拿到精排结果，已回退为未精排的 "
+                f"hybrid 排序。原因：{metrics.get('rerank_reason') or '原因未记录'}"
+            )
 
     findings = report.get("findings", [])
     verifications = report.get("verifications", [])
@@ -237,9 +258,57 @@ if matter:
     cited = sum(
         1 for item in findings if item.get("law_name") and item.get("article_no")
     )
-    gates_ok = sum(1 for item in findings if _all_pass(str(item.get("finding_id", ""))))
+    strict_pass = sum(1 for item in findings if _all_pass(str(item.get("finding_id", ""))))
+    # skipped 是「无法判定」，一律不计入通过；只差 G4 未判定的条目要单独点明，
+    # 否则「五闸通过 0 条」会被误读成核验全部失败。
+    skipped_count = 0
+    pass_with_skip = 0
+    for item in findings:
+        statuses = [
+            _gate_status(verdict)
+            for verdict in sorted(
+                by_finding.get(str(item.get("finding_id", "")), []),
+                key=lambda x: str(x.get("gate", "")),
+            )
+        ]
+        if "skipped" in statuses:
+            skipped_count += 1
+            if all(value in ("pass", "skipped") for value in statuses):
+                pass_with_skip += 1
+    counts = (
+        f"findings {len(findings)} 条；五闸通过 {strict_pass} 条 / "
+        f"跳过 {skipped_count} 条（不计通过）。"
+    )
+    if pass_with_skip:
+        counts += (
+            f"其中 {pass_with_skip} 条其余闸均通过、仅 G4 未判定"
+            "（API 路径 G4 恒为「未判定」，故不计入通过）。"
+        )
+    counts += f" 口径：{engine_tag}。"
+
+    status = matter["status"]
+    if status == "awaiting_review":
+        st.warning(
+            "**草稿 · 待人工确认。** 以下结论尚未导出，确认前不构成审查意见。\n\n" + counts
+        )
+    elif status == "completed":
+        st.success("**已确认并导出。**\n\n" + counts)
+    elif status == "rejected":
+        st.warning("**已驳回，本次不导出。** 如需重新审查，请重新上传并提交。\n\n" + counts)
+    elif status in ACTIVE_STATUS:
+        st.info(f"**任务进行中（{status}）。** 暂无可查看的清单，请稍候。")
+    elif status in ("cancelled", "failed", "interrupted"):
+        st.warning(
+            f"**任务未完成（{status}）。** 后台服务重启会把未完成任务标成 interrupted；"
+            "checkpoint 仍在，但当前不提供复核与导出。"
+        )
+    else:
+        st.info(f"**状态：{status}**")
+
+    if status in ACTIVE_STATUS:
+        st.stop()
+
     st.caption(
-        f"五闸全过 {gates_ok}/{len(findings)}（skipped 不计通过）；"
         f"引用 {cited} 条、未引用 {len(findings) - cited} 条。"
         "API 引擎没有 rule_id，G4 只确认存在引文、不校验法条适用性，显示为「未判定」。"
     )
@@ -269,8 +338,47 @@ if matter:
             key=lambda x: (RISK_ORDER.get(x.get("risk_level"), 9), x.get("clause_id", "")),
         )
     ]
-    st.subheader(f"风险条款（{len(rows)} 条，按风险等级排序）")
+    marker = {
+        "awaiting_review": "（草稿）",
+        "completed": "（已确认）",
+        "rejected": "（已驳回）",
+    }.get(status, "")
+    st.subheader(f"风险条款（{len(rows)} 条，按风险等级排序）{marker}")
     st.dataframe(rows, use_container_width=True, hide_index=True)
+
+    # 确认/驳回紧贴清单下方，看完就能操作；docx 入口只由 docx_path 决定。
+    if status == "awaiting_review":
+        comment = st.text_input("复核意见（可选）")
+        busy = bool(st.session_state.get("submitting", False))
+        left, right = st.columns(2)
+        if left.button("确认并导出 docx", type="primary", disabled=busy):
+            st.session_state["submitting"] = True
+            if _review(matter, "approve", comment):
+                st.rerun()
+            st.session_state["submitting"] = False
+        if right.button("驳回（不导出）", disabled=busy):
+            st.session_state["submitting"] = True
+            if _review(matter, "reject", comment):
+                st.rerun()
+            st.session_state["submitting"] = False
+    elif status == "completed":
+        if matter.get("docx_path"):
+            st.link_button(
+                "下载 docx",
+                f"{API}/export/{matter['matter_id']}?token={matter.get('token', '')}",
+            )
+    elif status == "rejected":
+        if matter.get("docx_path"):
+            st.link_button(
+                "下载 docx",
+                f"{API}/export/{matter['matter_id']}?token={matter.get('token', '')}",
+            )
+
+    if status in ("rejected", "cancelled", "failed", "interrupted"):
+        if st.button("重新上传合同"):
+            st.session_state.pop("matter", None)
+            st.session_state["submitting"] = False
+            st.rerun()
 
     if verifications:
         with st.expander("核验详情（G1–G5 逐条）"):
@@ -287,25 +395,3 @@ if matter:
                 use_container_width=True,
                 hide_index=True,
             )
-
-    if matter["status"] == "awaiting_review":
-        comment = st.text_input("复核意见（可选）")
-        left, right = st.columns(2)
-        if left.button("确认并导出 docx", type="primary"):
-            _review(matter, "approve", comment)
-        if right.button("驳回（不导出）"):
-            _review(matter, "reject", comment)
-    elif matter["status"] == "completed":
-        st.success("已确认并导出。")
-        st.link_button(
-            "下载 docx",
-            f"{API}/export/{matter['matter_id']}?token={matter.get('token', '')}",
-        )
-    elif matter["status"] == "rejected":
-        st.warning("已驳回；checkpoint 保留，可用 service.review 重新确认。")
-        st.link_button(
-            "查看当前 docx（若已生成）",
-            f"{API}/export/{matter['matter_id']}?token={matter.get('token', '')}",
-        )
-    elif matter["status"] in ("cancelled", "failed", "interrupted"):
-        st.warning(f"任务状态：{matter['status']}；不提供复核与导出。")

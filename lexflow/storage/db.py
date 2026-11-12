@@ -432,6 +432,14 @@ class Store:
         return dict(row) if row else None
 
     @_serialized
+    def get_task_by_matter(self, matter_id: str) -> dict[str, Any] | None:
+        """取某份 matter 最近一次任务；人工复核需要同步任务状态时用。"""
+        row = self.conn.execute(
+            "SELECT * FROM tasks WHERE matter_id = ? ORDER BY rowid DESC LIMIT 1", (matter_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    @_serialized
     def get_task_by_idempotency(self, idempotency_key: str) -> dict[str, Any] | None:
         row = self.conn.execute(
             "SELECT * FROM tasks WHERE idempotency_key = ?", (idempotency_key,)

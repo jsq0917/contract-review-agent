@@ -258,7 +258,7 @@ class TaskManager:
         if not task:
             raise LookupError(f"任务不存在: {task_id}")
         status = task["status"]
-        if status in ("completed", "failed", "cancelled", "interrupted"):
+        if status in ("completed", "rejected", "failed", "cancelled", "interrupted"):
             raise ValueError(f"任务已结束（{status}），不能取消")
         if status == "awaiting_review":
             raise ValueError("审查已完成，任务处于人工复核阶段；如需终止请驳回或忽略该 matter")

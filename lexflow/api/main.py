@@ -322,6 +322,11 @@ def review(
         raise ApiError(404, "matter_not_found", str(exc)) from exc
     except RuntimeError as exc:
         raise ApiError(409, "matter_conflict", str(exc)) from exc
+    if result.status == "rejected":
+        # 驳回后 matter 已终态，任务行同步成同一个值，避免 /tasks 与 matters 状态互相矛盾。
+        task = svc.store.get_task_by_matter(matter_id)
+        if task and task["status"] == "awaiting_review":
+            svc.store.update_task(task["id"], status="rejected")
     return {
         "matter_id": result.matter_id,
         "status": result.status,

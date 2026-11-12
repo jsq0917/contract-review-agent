@@ -92,8 +92,14 @@ def test_ui_shows_gates_and_skipped_verdicts(app: AppTest):
     }
     app.run()
     assert not list(app.exception)
+    warnings = " | ".join(item.value for item in app.warning)
+    assert "草稿 · 待人工确认" in warnings
+    assert "五闸通过 0 条 / 跳过 1 条（不计通过）" in warnings
+    assert "仅 G4 未判定" in warnings
     captions = " | ".join(item.value for item in app.caption)
-    assert "五闸全过 0/1" in captions
+    assert "引用 1 条、未引用 0 条" in captions
+    assert any("（草稿）" in item.value for item in app.subheader)
+    assert not app.get("link_button")
     risk_table = app.dataframe[0].value.to_string()
     assert "G4–" in risk_table
     assert "当事人可以约定违约金。" in risk_table
@@ -170,3 +176,227 @@ def test_ui_rerank_hint_branches(stub_health, overrides: dict, expected: str):
     assert not list(at.exception)
     captions = " | ".join(item.value for item in at.caption)
     assert expected in captions, captions
+
+
+def _rejected_matter(docx_path: str = "") -> dict:
+    return {
+        "matter_id": "matter-rejected",
+        "status": "rejected",
+        "engine": "mock",
+        "elapsed_ms": 1000,
+        "docx_path": docx_path,
+        "report": {"doc_id": "doc-1", "metrics": {}, "findings": [], "verifications": []},
+    }
+
+
+def test_ui_rejected_says_resubmit_and_hides_export(app: AppTest):
+    """驳回后不能承诺「可重新确认」，也不该给一个必然 409 的 docx 入口。"""
+    app.session_state["matter"] = _rejected_matter()
+    app.run()
+    assert not list(app.exception)
+    warnings = " | ".join(item.value for item in app.warning)
+    assert "已驳回，本次不导出" in warnings
+    assert "重新上传并提交" in warnings
+    assert "重新确认" not in warnings
+    assert not app.get("link_button")
+    labels = [item.label for item in app.button]
+    assert "确认并导出 docx" not in labels
+    assert "驳回（不导出）" not in labels
+
+
+def test_ui_rejected_shows_export_only_when_docx_exists(app: AppTest):
+    """只有 docx_path 真有值时，才渲染下载入口。"""
+    app.session_state["matter"] = _rejected_matter(docx_path="E:/tmp/report.docx")
+    app.run()
+    assert not list(app.exception)
+    links = app.get("link_button")
+    assert len(links) == 1
+    assert "下载 docx" in links[0].label
+
+
+def test_ui_rejected_offers_resubmit_button(app: AppTest):
+    """驳回后必须有回到上传区的入口，不能把用户卡在死页面。"""
+    app.session_state["matter"] = _rejected_matter()
+    app.run()
+    assert not list(app.exception)
+    assert "重新上传合同" in [item.label for item in app.button]
+    assert any("（已驳回）" in item.value for item in app.subheader)
+
+
+def test_ui_completed_shows_export_and_hides_confirm(app: AppTest):
+    """确认后：横幅转已确认、出现下载、确认/驳回消失。"""
+    app.session_state["matter"] = {
+        "matter_id": "matter-done",
+        "status": "completed",
+        "engine": "mock",
+        "elapsed_ms": 1000,
+        "docx_path": "E:/tmp/report.docx",
+        "report": {"doc_id": "doc-1", "metrics": {}, "findings": [], "verifications": []},
+    }
+    app.run()
+    assert not list(app.exception)
+    messages = " | ".join(item.value for item in app.success)
+    assert "已确认并导出" in messages
+    assert any("（已确认）" in item.value for item in app.subheader)
+    assert len(app.get("link_button")) == 1
+    labels = [item.label for item in app.button]
+    assert "确认并导出 docx" not in labels
+    assert "驳回（不导出）" not in labels
+
+
+def test_ui_failed_state_explains_interrupted(app: AppTest):
+    """failed/interrupted 不提供复核与导出，且要解释重启会标 interrupted。"""
+    app.session_state["matter"] = {
+        "matter_id": "matter-broken",
+        "status": "interrupted",
+        "engine": "mock",
+        "elapsed_ms": 0,
+        "report": {"doc_id": "doc-1", "metrics": {}, "findings": [], "verifications": []},
+    }
+    app.run()
+    assert not list(app.exception)
+    warnings = " | ".join(item.value for item in app.warning)
+    assert "任务未完成（interrupted）" in warnings
+    assert "checkpoint 仍在" in warnings
+    assert not app.get("link_button")
+    labels = [item.label for item in app.button]
+    assert "确认并导出 docx" not in labels
+    assert "重新上传合同" in labels
+
+
+def test_ui_submitting_flag_disables_review_buttons(app: AppTest):
+    """submitting=True 时确认/驳回必须不可点，避免重复 POST /review。"""
+    app.session_state["matter"] = {
+        "matter_id": "matter-test",
+        "status": "awaiting_review",
+        "engine": "mock",
+        "elapsed_ms": 1,
+        "report": {"doc_id": "doc-1", "metrics": {}, "findings": [], "verifications": []},
+    }
+    app.session_state["submitting"] = True
+    app.run()
+    assert not list(app.exception)
+    buttons = {item.label: item for item in app.button}
+    assert buttons["确认并导出 docx"].disabled is True
+    assert buttons["驳回（不导出）"].disabled is True
+
+
+def test_ui_approve_posts_review_once(app: AppTest, monkeypatch: pytest.MonkeyPatch):
+    """点一次确认只发一次 /review，且成功后切到已确认态。"""
+    calls: list[str] = []
+
+    class _Resp:
+        status_code = 200
+        text = ""
+
+        @staticmethod
+        def json() -> dict:
+            return {"status": "completed", "docx_path": "E:/tmp/report.docx", "metrics": {}}
+
+    def _post(url: str, **kwargs) -> _Resp:
+        calls.append(url)
+        return _Resp()
+
+    monkeypatch.setattr("requests.post", _post)
+    app.session_state["matter"] = {
+        "matter_id": "matter-test",
+        "status": "awaiting_review",
+        "engine": "mock",
+        "elapsed_ms": 1,
+        "report": {"doc_id": "doc-1", "metrics": {}, "findings": [], "verifications": []},
+    }
+    app.run()
+    buttons = {item.label: item for item in app.button}
+    buttons["确认并导出 docx"].click()
+    app.run()
+    assert not list(app.exception)
+    assert len(calls) == 1
+    assert calls[0].endswith("/review/matter-test")
+    assert app.session_state["matter"]["status"] == "completed"
+
+
+def _matter_with_metrics(metrics: dict) -> dict:
+    return {
+        "matter_id": "matter-metrics",
+        "status": "awaiting_review",
+        "engine": "api",
+        "elapsed_ms": 1000,
+        "report": {"doc_id": "doc-1", "metrics": metrics, "findings": [], "verifications": []},
+    }
+
+
+def test_ui_rerank_cache_hits_count_as_effective(app: AppTest):
+    """全部命中精排缓存不是降级：旧报告 rerank_used=false 也要按 cache_hits 说已生效。"""
+    app.session_state["matter"] = _matter_with_metrics(
+        {
+            "rerank_requested": True,
+            "rerank_used": False,
+            "rerank_applied": 0,
+            "rerank_cache_hits": 19,
+            "rerank_fallback": 0,
+            "rerank_reason": "未发起精排调用",
+        }
+    )
+    app.run()
+    assert not list(app.exception)
+    captions = " | ".join(item.value for item in app.caption)
+    assert "精排已生效，本次 19 次查询全部命中缓存" in captions
+    assert not any("未生效" in item.value for item in app.warning)
+
+
+def test_ui_rerank_fallback_still_reports_ineffective(app: AppTest):
+    """真正降级（fallback>0）仍要报未生效，并给出原因。"""
+    app.session_state["matter"] = _matter_with_metrics(
+        {
+            "rerank_requested": True,
+            "rerank_used": False,
+            "rerank_applied": 0,
+            "rerank_cache_hits": 0,
+            "rerank_fallback": 19,
+            "rerank_reason": "未配置 reranker 模型",
+        }
+    )
+    app.run()
+    assert not list(app.exception)
+    warnings = " | ".join(item.value for item in app.warning)
+    assert "已请求精排但未生效" in warnings
+    assert "未配置 reranker 模型" in warnings
+
+
+def test_ui_rerank_disabled_shows_no_rerank_status(app: AppTest):
+    """没请求精排时不渲染任何「已生效 / 未生效」结论。"""
+    app.session_state["matter"] = _matter_with_metrics(
+        {
+            "rerank_requested": False,
+            "rerank_used": False,
+            "rerank_applied": 0,
+            "rerank_cache_hits": 0,
+            "rerank_fallback": 0,
+        }
+    )
+    app.run()
+    assert not list(app.exception)
+    text = " | ".join(
+        [item.value for item in app.caption] + [item.value for item in app.warning]
+    )
+    assert "本次未启用精排" in text
+    assert "已生效" not in text
+
+
+def test_ui_engine_choice_survives_rerun(app: AppTest):
+    """engine 选择用 session_state 固定，提交后的 rerun 不再回落到 mock。
+
+    下拉框在 form 内，按 Streamlit 语义只有提交时才落值；这里点「开始审查」
+    （没有文件，不会真的发 /analyze）来提交表单，再验证后续 rerun 仍保持 api。
+    """
+    app.run()
+    engine_box = next(item for item in app.selectbox if item.label == "engine")
+    assert engine_box.value == "mock"
+    engine_box.set_value("api")
+    app.button[0].click()
+    app.run()
+    assert not list(app.exception)
+    assert app.session_state["engine"] == "api"
+    app.run()
+    engine_box = next(item for item in app.selectbox if item.label == "engine")
+    assert engine_box.value == "api"
